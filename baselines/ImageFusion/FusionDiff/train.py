@@ -215,4 +215,6 @@ if __name__ == '__main__':
     parser.add_argument("--resume")
     parsed = parser.parse_args()
     torch.manual_seed(parsed.seed)
+    import random
+    random.seed(parsed.seed)
     train(parsed.config, parsed)

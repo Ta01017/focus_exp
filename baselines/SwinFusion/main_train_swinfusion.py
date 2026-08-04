@@ -192,6 +192,10 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     '''
     need_GT = opt['datasets']['train']['dataset_type'] in ['mef_GT', 'mff_GT', 'metadata_mff']
     for epoch in range(5000):  # keep running
+        if hasattr(train_set, 'set_epoch'):
+            train_set.set_epoch(epoch)
+        if opt['dist']:
+            train_sampler.set_epoch(epoch)
         for i, train_data in enumerate(train_loader):
 
             current_step += 1

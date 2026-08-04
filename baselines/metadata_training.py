@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import random
 
 import numpy as np
 import torch
@@ -30,13 +31,20 @@ class MetadataFusionDataset(Dataset):
 
     def __init__(self, metadata, mode, *, size=None, crop_size=None, channels=3,
                  value_range="zero_one", size_policy="error", seed=0,
-                 start_index=0, max_samples=-1, augment=False):
+                 start_index=0, max_samples=-1, augment=False,
+                 operation_order="resize_then_crop"):
         if mode not in {"train", "val"}:
             raise ValueError("MetadataFusionDataset mode must be train or val")
         self.metadata_path, self.items = load_metadata(metadata, start_index, max_samples)
         self.mode, self.size, self.crop_size = mode, size, crop_size
         self.channels, self.value_range = channels, value_range
         self.size_policy, self.seed, self.augment = size_policy, seed, augment
+        self.operation_order = operation_order
+        self.epoch = 0
+
+    def set_epoch(self, epoch):
+        """Set distributed epoch; DataLoader worker RNG still changes per access."""
+        self.epoch = int(epoch)
 
     def __len__(self):
         return len(self.items)
@@ -45,10 +53,13 @@ class MetadataFusionDataset(Dataset):
         index, item = self.items[position]
         sample = prepare_item(item, index, self.metadata_path,
                               size_policy=self.size_policy, mode=self.mode)
+        # DataLoader seeds Python's global RNG per worker. Drawing here gives a
+        # reproducible sequence that changes on every training access/epoch.
+        transform_seed = (random.getrandbits(63) ^ (self.epoch << 32)) if self.mode == "train" else self.seed + index
         sample = synchronized_preprocess(
             sample, size=self.size, crop_size=self.crop_size, mode=self.mode,
-            seed=self.seed + index, hflip=self.augment, vflip=self.augment,
-            rotate90=self.augment)
+            seed=transform_seed, hflip=self.augment, vflip=self.augment,
+            rotate90=self.augment, operation_order=self.operation_order)
         a = _tensor(sample["image_a"], self.channels, self.value_range)
         b = _tensor(sample["image_b"], self.channels, self.value_range)
         target = _tensor(sample["target"], self.channels, self.value_range)

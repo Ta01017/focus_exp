@@ -144,25 +144,38 @@ def prepare_item(item, index, metadata_path, size_policy="error", mode="infer"):
 
 
 def synchronized_preprocess(sample, size=None, crop_size=None, mode="val", seed=None,
-                            hflip=False, vflip=False, rotate90=False):
+                            hflip=False, vflip=False, rotate90=False,
+                            operation_order="resize_then_crop"):
     """Apply one set of geometry parameters to A, B, and GT."""
     images = [sample["image_a"], sample["image_b"]]
     if sample.get("target") is not None:
         images.append(sample["target"])
-    if size is not None:
-        output_size = (size, size) if isinstance(size, int) else tuple(size)
-        images = [image.resize(output_size, Image.Resampling.BICUBIC) for image in images]
     rng = random.Random(seed)
-    if crop_size is not None:
+    def resize_all(values):
+        if size is None:
+            return values
+        output_size = (size, size) if isinstance(size, int) else tuple(size)
+        return [image.resize(output_size, Image.Resampling.BICUBIC) for image in values]
+
+    def crop_all(values):
+        if crop_size is None:
+            return values
         crop = (crop_size, crop_size) if isinstance(crop_size, int) else tuple(crop_size)
-        width, height = images[0].size
+        width, height = values[0].size
         if width < crop[0] or height < crop[1]:
             raise ValueError(f"crop {crop} exceeds image size {(width, height)}")
         if mode == "train":
             left, top = rng.randint(0, width-crop[0]), rng.randint(0, height-crop[1])
         else:
             left, top = (width-crop[0])//2, (height-crop[1])//2
-        images = [image.crop((left, top, left+crop[0], top+crop[1])) for image in images]
+        return [image.crop((left, top, left+crop[0], top+crop[1])) for image in values]
+
+    if operation_order == "resize_then_crop":
+        images = crop_all(resize_all(images))
+    elif operation_order == "crop_then_resize":
+        images = resize_all(crop_all(images))
+    else:
+        raise ValueError("operation_order must be resize_then_crop or crop_then_resize")
     if mode == "train":
         if hflip and rng.random() < .5:
             images = [ImageOps.mirror(image) for image in images]

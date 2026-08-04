@@ -6,7 +6,8 @@ import argparse
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 
-from my_dataset import MFI_Dataset, MetadataMFI_Dataset
+from my_dataset import MFI_Dataset
+from metadata_adapter import MetadataMFI_Dataset
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -37,7 +38,9 @@ def train(config_path, args=None):
             raise ValueError("metadata mode requires --train-metadata and --val-metadata")
         train_dataset = MetadataMFI_Dataset(args.train_metadata, "train", train_resize, train_imgSize,
                                             args.seed, args.start_index, args.max_samples)
-        val_dataset = MetadataMFI_Dataset(args.val_metadata, "valid", train_resize, train_imgSize,
+        val_cfg = config["dataset"].get("valid", config["dataset"]["train"])
+        val_dataset = MetadataMFI_Dataset(args.val_metadata, "valid", val_cfg.get("resize", train_resize),
+                                          val_cfg.get("imgSize", train_imgSize),
                                           args.seed, 0, args.max_samples)
         warn_split_overlap(train_dataset, val_dataset)
     else:
@@ -214,4 +217,6 @@ if __name__ == '__main__':
     parser.add_argument("--resume")
     parsed = parser.parse_args()
     torch.manual_seed(parsed.seed)
+    import random
+    random.seed(parsed.seed)
     train(parsed.config, parsed)
