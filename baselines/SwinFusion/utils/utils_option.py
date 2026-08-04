@@ -88,9 +88,14 @@ def parse(opt_path, is_train=True):
     # ----------------------------------------
     # GPU devices
     # ----------------------------------------
-    gpu_list = ','.join(str(x) for x in opt['gpu_ids'])
-    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_list
-    print('export CUDA_VISIBLE_DEVICES=' + gpu_list)
+    configured_gpu_list = ','.join(str(x) for x in opt['gpu_ids'])
+    external_cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES')
+    if external_cuda_visible:
+        print('[GPU] Respect externally supplied CUDA_VISIBLE_DEVICES=' + external_cuda_visible)
+    else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = configured_gpu_list
+        print('[GPU] Set CUDA_VISIBLE_DEVICES from config=' + configured_gpu_list)
+    print('[GPU] Effective CUDA_VISIBLE_DEVICES=' + os.environ['CUDA_VISIBLE_DEVICES'])
 
     # ----------------------------------------
     # default setting for distributeddataparallel

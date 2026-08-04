@@ -1,9 +1,9 @@
 import json
-import random
 import sys
 from pathlib import Path
 
 import numpy as np
+import torch
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent
@@ -43,7 +43,7 @@ def test_rediffuse_train_crop_changes_and_is_synchronized(tmp_path):
     dataset = MetadataMFI_Dataset(metadata, "train", True, 128, seed=19)
     assert dataset.crop_size == 256
     assert dataset.operation_order == "crop_then_resize"
-    random.seed(101)
+    torch.manual_seed(101)
     outputs = [dataset[0] for _ in range(4)]
     for sample in outputs:
         _assert_synced(sample)
@@ -68,12 +68,12 @@ def test_swinfusion_train_augmentation_changes_but_stays_synchronized(tmp_path):
     metadata = _fixture(tmp_path)
     dataset = DatasetMetadataMFF({"metadata": str(metadata), "phase": "train",
                                   "H_size": 128, "n_channels": 3, "seed": 23})
-    random.seed(202)
+    torch.manual_seed(202)
     outputs = [dataset[0] for _ in range(4)]
     for sample in outputs:
         _assert_synced(sample)
     assert len({sample["a"].numpy().tobytes() for sample in outputs}) > 1
-    random.seed(202)
+    torch.manual_seed(202)
     replay = DatasetMetadataMFF({"metadata": str(metadata), "phase": "train",
                                  "H_size": 128, "n_channels": 3, "seed": 23})
     assert (outputs[0]["a"] == replay[0]["a"]).all()

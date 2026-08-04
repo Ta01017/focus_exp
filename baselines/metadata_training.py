@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
-import random
 
 import numpy as np
 import torch
@@ -13,7 +12,8 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from metadata_dataset import load_metadata, prepare_item, synchronized_preprocess
+from metadata_dataset import (inspect_item_paths, load_metadata, prepare_item,
+                              synchronized_preprocess)
 
 
 def _tensor(image, channels, value_range):
@@ -41,10 +41,12 @@ class MetadataFusionDataset(Dataset):
         self.size_policy, self.seed, self.augment = size_policy, seed, augment
         self.operation_order = operation_order
         self.epoch = 0
+        self._access_counter = 0
 
     def set_epoch(self, epoch):
         """Set distributed epoch; DataLoader worker RNG still changes per access."""
         self.epoch = int(epoch)
+        self._access_counter = 0
 
     def __len__(self):
         return len(self.items)
@@ -53,9 +55,13 @@ class MetadataFusionDataset(Dataset):
         index, item = self.items[position]
         sample = prepare_item(item, index, self.metadata_path,
                               size_policy=self.size_policy, mode=self.mode)
-        # DataLoader seeds Python's global RNG per worker. Drawing here gives a
-        # reproducible sequence that changes on every training access/epoch.
-        transform_seed = (random.getrandbits(63) ^ (self.epoch << 32)) if self.mode == "train" else self.seed + index
+        if self.mode == "train":
+            worker_seed = torch.initial_seed()
+            transform_seed = (self.seed + self.epoch * 1_000_003 + index * 97
+                              + worker_seed + self._access_counter) % (2**32)
+            self._access_counter += 1
+        else:
+            transform_seed = self.seed + index
         sample = synchronized_preprocess(
             sample, size=self.size, crop_size=self.crop_size, mode=self.mode,
             seed=transform_seed, hflip=self.augment, vflip=self.augment,
@@ -80,25 +86,30 @@ def describe_metadata_split(dataset, name):
     print(f"{name} samples: {len(dataset)}")
     ids = []
     for position in range(min(3, len(dataset))):
-        sample = dataset[position]
+        index, item = dataset.items[position]
+        sample = inspect_item_paths(item, index, dataset.metadata_path)
         ids.append(sample["sample_id"])
         print(f"{name}[{position}] A={sample['a_path']} B={sample['b_path']} GT={sample['gt_path']}")
-    all_ids = [prepare_item(item, index, dataset.metadata_path, mode=dataset.mode)["sample_id"]
-               for index, item in dataset.items]
+    inspected = [inspect_item_paths(item, index, dataset.metadata_path)
+                 for index, item in dataset.items]
+    all_ids = [sample["sample_id"] for sample in inspected]
     duplicates = len(all_ids) != len(set(all_ids))
     print(f"{name} duplicate sample_id: {duplicates}")
-    return set(all_ids)
+    return inspected
 
 
-def warn_split_overlap(train_dataset, val_dataset):
-    train_ids = describe_metadata_split(train_dataset, "train")
-    val_ids = describe_metadata_split(val_dataset, "val")
-    overlap = train_ids & val_ids
-    if overlap:
-        print(f"WARNING: train/val sample_id overlap ({len(overlap)}): {sorted(overlap)[:10]}")
-    train_gt = {str(prepare_item(item, i, train_dataset.metadata_path, mode="train")["gt_path"])
-                for i, item in train_dataset.items}
-    val_gt = {str(prepare_item(item, i, val_dataset.metadata_path, mode="val")["gt_path"])
-              for i, item in val_dataset.items}
-    if train_gt & val_gt:
-        print(f"WARNING: train/val GT path overlap: {len(train_gt & val_gt)}")
+def warn_split_overlap(train_dataset, val_dataset, fail_on_overlap=False):
+    train = describe_metadata_split(train_dataset, "train")
+    val = describe_metadata_split(val_dataset, "val")
+    fields = ("sample_id", "gt_path", "a_path", "source_index")
+    found = {}
+    for field in fields:
+        left = {str(x[field]) for x in train if x.get(field) is not None}
+        right = {str(x[field]) for x in val if x.get(field) is not None}
+        overlap = left & right
+        found[field] = overlap
+        if overlap:
+            print(f"WARNING: train/val {field} overlap ({len(overlap)}): {sorted(overlap)[:10]}")
+    if fail_on_overlap and any(found.values()):
+        raise ValueError("train/val overlap found and fail_on_overlap is enabled")
+    return found

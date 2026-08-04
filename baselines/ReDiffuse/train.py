@@ -6,20 +6,22 @@ import argparse
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 
-from my_dataset import MFI_Dataset
 from metadata_adapter import MetadataMFI_Dataset
+from runtime_check import require_official_b_conv
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from metadata_training import warn_split_overlap
-from Diffusion import GaussianDiffusion
-from Condition_Noise_Predictor.Rot_E_UNet import NoisePred
-from utils import tensorboard_writer, logger, save_model
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def train(config_path, args=None):
+    require_official_b_conv()
+    from my_dataset import MFI_Dataset
+    from Diffusion import GaussianDiffusion
+    from Condition_Noise_Predictor.Rot_E_UNet import NoisePred
+    from utils import tensorboard_writer, logger, save_model
     timestr = time.strftime('%Y%m%d_%H%M%S')
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
@@ -42,7 +44,7 @@ def train(config_path, args=None):
         val_dataset = MetadataMFI_Dataset(args.val_metadata, "valid", val_cfg.get("resize", train_resize),
                                           val_cfg.get("imgSize", train_imgSize),
                                           args.seed, 0, args.max_samples)
-        warn_split_overlap(train_dataset, val_dataset)
+        warn_split_overlap(train_dataset, val_dataset, args.fail_on_split_overlap)
     else:
         train_dataset = MFI_Dataset(train_datasePath, phase=train_phase, use_dataTransform=train_use_dataTransform,
                                     resize=train_resize, imgSzie=train_imgSize)
@@ -128,7 +130,7 @@ def train(config_path, args=None):
     for epoch in range(start_epoch, epochs):
         # train
         model.train()
-        loss_sum = 0
+        loss_sum = 0.0
         writer.add_scalar('lr_epoch: ', optimizer.state_dict()['param_groups'][0]['lr'], epoch)
 
         for train_step, train_images in tqdm(enumerate(train_dataloader), desc="train step"):
@@ -141,7 +143,7 @@ def train(config_path, args=None):
 
             t = torch.randint(0, T, (clearImg.shape[0],), device=device).long()
             scale_loss = diffusion.train_losses(model, train_sourceImg1, train_sourceImg2, clearImg, t, concat_type, loss_scale)
-            writer.add_scalar('loss_step: ', scale_loss, num_train_step)
+            writer.add_scalar('loss_step: ', float(scale_loss.detach().item()), num_train_step)
 
             if train_step % loss_step == 0:
                 print(
@@ -165,7 +167,7 @@ def train(config_path, args=None):
             scale_loss.backward()
             optimizer.step()
 
-            loss_sum += scale_loss
+            loss_sum += float(scale_loss.detach().item())
             num_train_step += 1
             if args and args.max_train_steps >= 0 and num_train_step >= args.max_train_steps:
                 break
@@ -178,7 +180,8 @@ def train(config_path, args=None):
                     va, vb, vg = (val_images[k].to(device) for k in ("a", "b", "target"))
                     vt = torch.zeros((vg.shape[0],), dtype=torch.long, device=device)
                     val_loss = diffusion.train_losses(model, va, vb, vg, vt, concat_type, loss_scale)
-                    print(f"validation loss: {val_loss.item() / loss_scale:.6f}")
+                    val_loss_value = float(val_loss.detach().item())
+                    print(f"validation loss: {val_loss_value / loss_scale:.6f}")
                     break
         if args and args.max_train_steps >= 0 and num_train_step >= args.max_train_steps:
             writer.close()
@@ -215,6 +218,7 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-train-steps", type=int, default=-1)
     parser.add_argument("--resume")
+    parser.add_argument("--fail-on-split-overlap", type=int, choices=(0, 1), default=0)
     parsed = parser.parse_args()
     torch.manual_seed(parsed.seed)
     import random

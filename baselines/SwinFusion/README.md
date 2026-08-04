@@ -109,6 +109,16 @@ python infer_metadata.py --metadata ..\smoke_metadata\metadata.json --output-dir
 ```
 
 正式训练必须传不同的 train/val metadata。
+
+初始化模式必须显式选择，并始终写入独立输出目录：
+
+```cmd
+python main_train_swinfusion.py --opt options\swinir\train_swinfusion_mff.json --train-metadata D:\data\train.json --val-metadata D:\data\val.json --init-mode scratch --output-dir D:\outputs\swin_scratch
+python main_train_swinfusion.py --opt options\swinir\train_swinfusion_mff.json --train-metadata D:\data\train.json --val-metadata D:\data\val.json --init-mode official --init-checkpoint-dir D:\official\Multi_Focus\models --output-dir D:\outputs\swin_official
+python main_train_swinfusion.py --opt options\swinir\train_swinfusion_mff.json --train-metadata D:\data\train.json --val-metadata D:\data\val.json --init-mode resume --resume-dir D:\outputs\swin_official
+```
+
+`scratch` 不加载任何权重；`official` 只加载 G/E 且 iteration 从 0 开始；`resume` 加载同 iteration 的 G/E/optimizerG 并恢复 iteration。程序不再扫描配置中的官方目录来隐式决定模式。外部 `CUDA_VISIBLE_DEVICES` 优先于 JSON 配置。
 ### To Train
 Download the training dataset from [**MFI-WHU dataset**](https://github.com/HaoZhang1018/MFI-WHU), and put it in **./Dataset/trainsets/MEF**. 
 

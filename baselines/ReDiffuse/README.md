@@ -70,6 +70,8 @@ python infer_metadata.py --metadata ..\smoke_metadata\metadata.json --output-dir
 ```
 
 Metadata 模式保留旋转等变网络、Y 通道、同步 256 crop、扩散 loss 和条件排列。checkpoint 不存在或状态不匹配时推理会失败，不会使用随机权重生成结果。
+
+正式推理必须使用训练配置的 2000 步。少步采样尚未实现，不得通过直接修改 `T` 重建 noise schedule。当前仓库缺少官方 `Condition_Noise_Predictor/B_Conv.py`，训练和推理预检会明确阻塞；不得用 pyc、普通卷积或 `strict=False` 绕过。
 We also provide the pre-trained weights in the ``./weights/model.pt``.
 ### 🏄 Testing
 

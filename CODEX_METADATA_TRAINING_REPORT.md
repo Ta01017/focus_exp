@@ -2,6 +2,48 @@
 
 审计日期：2026-08-03。结论中的 “PASS” 仅表示本机实际执行通过；“代码检查”不等同于真实模型运行。
 
+## v2 verification matrix（2026-08-05）
+
+| Method | Dataset smoke | Model forward | Optimizer step | Checkpoint strict load | Sampling smoke | Train ready | Infer ready | Blocker |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| DSIFT | PASS（公共 schema） | N/A | N/A | N/A | 未验证 | N/A | 未验证 | MATLAB 未安装 |
+| IFCNN | PASS | 未验证 | N/A | 未验证 | 未验证 | No official train loop | 未验证 | 缺 torchvision |
+| SwinFusion | PASS | PASS（真实 MFIF 网络，CPU） | PASS（原 MFF loss） | PASS（10000_G，strict=True） | N/A | 代码路径完成；完整入口未验证 | checkpoint forward PASS | 完整 CLI 缺 cv2/timm；测试以仅补齐 import 的 harness 执行 |
+| ZMFF | PASS | Per-image 未验证 | N/A | N/A | 未验证 | N/A | 未验证 | 完整逐样本优化未运行 |
+| FusionDiff | PASS | PASS（真实 NoisePred，CPU） | PASS（原 diffusion loss） | PASS（smoke save/load，strict=True） | 未验证 | 代码路径及最小 step PASS | 正式推理未验证 | 仓库无正式 checkpoint；cv2 缺失 |
+| ReDiffuse | PASS | 未验证 | 未验证 | 未验证 | 未验证 | No | No | Missing B_Conv.py |
+
+SwinFusion MFIF 是官方 A/B 无监督融合 loss；metadata GT 仅用于验证配对/PSNR，不是训练 loss target。FusionDiff 正式 checkpoint 来源和 SHA-256 当前均“不知道”，因此没有把 smoke checkpoint 当作正式权重。
+
+### v2 已执行命令与结果
+
+```text
+python3 -m pytest ... test_metadata_training_behavior.py test_metadata_v2.py ...
+# 14 passed
+
+python3 -m py_compile baselines/SwinFusion/main_train_swinfusion.py ...
+bash -n run_train_metadata_v2.sh run_infer_metadata_v2.sh
+# PASS
+
+CUDA_VISIBLE_DEVICES=2 python3 -c "... utils_option.parse(...); assert env == '2'"
+# PASS；外部 GPU 可见性未被覆盖
+
+# SwinFusion：用 torch 实现缺失 timm 小工具、空的未使用 torchvision import，
+# 并只在 CPU harness 中将 loss 内硬编码 Tensor.cuda() 映射为 CPU identity；
+# 网络、官方 checkpoint、forward、原 fusion_loss_mff 和 optimizer 均未替换。
+# 结果：strict checkpoint load + 128x128 forward PASS；原 MFF loss optimizer step PASS。
+
+# FusionDiff：为缺失且本次路径未使用的 cv2/utils import 提供空 harness，
+# 运行真实 NoisePred + GaussianDiffusion.train_losses + AdamW step，随后 save/load strict=True。
+# 结果：forward + optimizer + checkpoint strict load PASS。
+
+METHOD=rediffuse bash run_train_metadata_v2.sh
+METHOD=rediffuse bash run_infer_metadata_v2.sh
+# 均按预期 exit 3，并明确报告 Missing B_Conv.py
+```
+
+没有执行 2000 步正式 sampling，因此 Sampling smoke 保持“未验证”。非 2000 步校验单元测试 PASS：直接修改 `T` 的伪少步采样会抛出 `ValueError`。
+
 | Method | Metadata inference | Metadata train | Metadata val | Official checkpoint | Resume | Smoke status | Remaining issue |
 | ------ | ------------------ | -------------- | ------------ | ------------------- | ------ | ------------ | --------------- |
 | DSIFT | 已接入，批量逐项容错 | 不适用 | 不适用 | 不适用 | 不适用 | 代码检查 | 本机无 MATLAB，未运行算法 |

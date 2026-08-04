@@ -43,6 +43,8 @@ python infer_metadata.py --metadata ..\..\smoke_metadata\metadata.json --output-
 
 Metadata 模式只替换 A/B/GT 数据来源，不改变扩散公式、条件排列、noise schedule 或 loss。`--resume` 可恢复模型及 checkpoint 中存在的 optimizer 状态。
 
+正式推理必须使用训练配置的 2000 步。少步采样尚未实现，不得通过直接修改 `T` 重建 noise schedule；`--sampling-steps` 只用于校验且必须为 2000。仓库未发布 FusionDiff checkpoint，获得经验证权重后应记录来源与 SHA-256。
+
 ### Testing with pre-trained model
 You need to provide the path of the pretrained model in inference.py (line 78).
 

@@ -9,6 +9,9 @@ import logging
 from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 import torch
+from pathlib import Path
+import json
+import sys
 
 from utils import utils_logger
 from utils import utils_image as util
@@ -17,6 +20,7 @@ from utils.utils_dist import get_dist_info, init_dist
 
 from data.select_dataset import define_Dataset
 from models.select_model import define_Model
+from training_run import configure_training_run
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -53,6 +57,12 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     parser.add_argument('--num-workers', type=int)
     parser.add_argument('--seed', type=int)
     parser.add_argument('--max-train-steps', type=int, default=-1)
+    parser.add_argument('--output-dir')
+    parser.add_argument('--init-mode', choices=('scratch', 'official', 'resume'), default='scratch')
+    parser.add_argument('--init-checkpoint-dir')
+    parser.add_argument('--resume-dir')
+    parser.add_argument('--overwrite-output', type=int, choices=(0, 1), default=0)
+    parser.add_argument('--fail-on-split-overlap', type=int, choices=(0, 1), default=0)
 
     args = parser.parse_args()
     opt = option.parse(args.opt, is_train=True)
@@ -70,6 +80,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
         if args.num_workers is not None:
             opt['datasets']['train']['dataloader_num_workers'] = args.num_workers
 
+    current_step, run_manifest = configure_training_run(opt, args)
+    print('[INIT] mode={init_mode} G={loaded_G} E={loaded_E} optimizer={loaded_optimizerG}'.format(**run_manifest))
+
     # ----------------------------------------
     # distributed settings
     # ----------------------------------------
@@ -86,14 +99,6 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     # update opt
     # ----------------------------------------
     # -->-->-->-->-->-->-->-->-->-->-->-->-->-
-    init_iter_G, init_path_G = option.find_last_checkpoint(opt['path']['models'], net_type='G')
-    init_iter_E, init_path_E = option.find_last_checkpoint(opt['path']['models'], net_type='E')
-    opt['path']['pretrained_netG'] = init_path_G
-    opt['path']['pretrained_netE'] = init_path_E
-    init_iter_optimizerG, init_path_optimizerG = option.find_last_checkpoint(opt['path']['models'], net_type='optimizerG')
-    opt['path']['pretrained_optimizerG'] = init_path_optimizerG
-    current_step = max(init_iter_G, init_iter_E, init_iter_optimizerG)
-
     border = opt['scale']
     # --<--<--<--<--<--<--<--<--<--<--<--<--<-
 
@@ -102,6 +107,8 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     # ----------------------------------------
     if opt['rank'] == 0:
         option.save(opt)
+        with (Path(run_manifest['output_dir']) / 'options_resolved.json').open('w', encoding='utf-8') as handle:
+            json.dump(opt, handle, indent=2)
 
     # ----------------------------------------
     # return None for missing key
@@ -172,6 +179,10 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
                                      drop_last=False, pin_memory=True)
         else:
             raise NotImplementedError("Phase [%s] is not recognized." % phase)
+    if args.train_metadata:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from metadata_training import warn_split_overlap
+        warn_split_overlap(train_set, test_set, bool(args.fail_on_split_overlap))
 
     '''
     # ----------------------------------------

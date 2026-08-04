@@ -83,6 +83,22 @@ def validate_training_item(item, index=None):
         raise ValueError(f"metadata item {index} requires 'image' (GT) in train/val mode")
 
 
+def inspect_item_paths(item, index, metadata_path):
+    """Validate schema and resolve A/B/GT strings without opening any image."""
+    if not isinstance(item, dict):
+        raise ValueError(f"metadata index={index}: item must be an object")
+    edits = item.get("edit_image")
+    if not isinstance(edits, list) or len(edits) < 2:
+        raise ValueError(f"metadata index={index}: edit_image must contain at least 2 paths")
+    metadata_dir = Path(metadata_path).resolve().parent
+    gt_value = item.get("image")
+    return {"index": index, "sample_id": get_sample_id(item, index),
+            "a_path": resolve_portable_path(edits[0], metadata_dir),
+            "b_path": resolve_portable_path(edits[1], metadata_dir),
+            "gt_path": resolve_portable_path(gt_value, metadata_dir) if gt_value else None,
+            "source_index": item.get("source_index")}
+
+
 def _open_rgb(path, label):
     if path is None or not path.is_file():
         raise FileNotFoundError(f"{label} image not found: {path}")

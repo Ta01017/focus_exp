@@ -46,3 +46,5 @@ baselines\DSIFT-MFIF\run_metadata_dsift.bat baselines\smoke_metadata\metadata.js
 ```
 
 IFCNN 源码中没有完整官方训练入口，因此没有编造监督训练流程；可复用公共 `MetadataFusionDataset`，但可靠范围仅为官方 checkpoint 推理。DSIFT 是非学习 MATLAB 方法。ZMFF 是逐样本 zero-shot 优化，两者都没有监督训练入口。
+
+Linux 一键入口为根目录 `run_train_metadata_v2.sh` 与 `run_infer_metadata_v2.sh`。SwinFusion 训练必须设置独立 `OUTPUT_ROOT/TAG` 和显式 `INIT_MODE=scratch|official|resume`。FusionDiff/ReDiffuse 正式推理固定使用训练配置的 `T=2000`；未实现验证过的 DDIM/timestep respacing，不能用修改 `T` 模拟少步采样。
