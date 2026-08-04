@@ -1,0 +1,866 @@
+请检查并修改仓库：
+
+D:\focus_exp
+
+目标提交：
+
+4a8ead51b34e132964b76ddd1a63ff58cb9d15b2
+
+本次只修复已经确认的问题，不要改动各 baseline 的模型结构、原始损失函数、条件输入方式或扩散公式。
+
+metadata.json 的统一格式已经基本正确，必须继续保持：
+
+* `image`：GT。
+* `edit_image[0]`：A。
+* `edit_image[1]`：B。
+* `edit_image[2:]`：全部忽略。
+* 四图输入时绝不能读取 focus map。
+* 相对路径继续以 metadata.json 所在目录为基准。
+
+---
+
+# 一、首先创建修复分支
+
+在仓库根目录执行：
+
+```bash
+git checkout -b fix/metadata-train-infer-v2
+```
+
+所有修改完成并测试后，再提交。
+
+---
+
+# 二、修复 SwinFusion 的立即报错
+
+文件：
+
+```text
+D:\focus_exp\baselines\SwinFusion\main_train_swinfusion.py
+```
+
+当前代码使用了：
+
+```python
+Path(args.train_metadata).resolve()
+Path(args.val_metadata).resolve()
+```
+
+但没有导入 `Path`。
+
+在文件顶部加入：
+
+```python
+from pathlib import Path
+```
+
+然后执行语法检查：
+
+```bash
+python -m py_compile baselines/SwinFusion/main_train_swinfusion.py
+```
+
+不能只修改后不测试。
+
+---
+
+# 三、修复 SwinFusion 的 GPU 选择覆盖问题
+
+检查文件：
+
+```text
+D:\focus_exp\baselines\SwinFusion\utils\utils_option.py
+```
+
+或实际包含以下逻辑的文件：
+
+```python
+os.environ["CUDA_VISIBLE_DEVICES"] = gpu_list
+```
+
+当前问题：
+
+外部设置：
+
+```bash
+CUDA_VISIBLE_DEVICES=1,2,3
+```
+
+后，程序内部仍然根据 JSON 中的：
+
+```json
+"gpu_ids": [0, 1, 2]
+```
+
+重新覆盖环境变量，可能错误使用物理卡 0、1、2。
+
+修改为：
+
+```python
+configured_gpu_list = ",".join(str(x) for x in opt["gpu_ids"])
+
+external_cuda_visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+
+if external_cuda_visible:
+    print(
+        "[GPU] Respect externally supplied CUDA_VISIBLE_DEVICES="
+        f"{external_cuda_visible}"
+    )
+else:
+    os.environ["CUDA_VISIBLE_DEVICES"] = configured_gpu_list
+    print(
+        "[GPU] Set CUDA_VISIBLE_DEVICES from config="
+        f"{configured_gpu_list}"
+    )
+```
+
+要求：
+
+1. 已存在 `CUDA_VISIBLE_DEVICES` 时绝不覆盖。
+2. 配置中的 `gpu_ids` 仍表示可见卡内部的逻辑编号。
+3. 日志打印最终生效的环境变量。
+4. 不硬编码任何物理 GPU 编号。
+
+增加测试：
+
+```bash
+CUDA_VISIBLE_DEVICES=2 python -c "import os; print(os.environ['CUDA_VISIBLE_DEVICES'])"
+```
+
+并至少运行一次 SwinFusion 参数解析 smoke，确认没有再次覆盖。
+
+---
+
+# 四、为 SwinFusion 增加独立输出目录和明确初始化模式
+
+当前问题：
+
+SwinFusion 默认从：
+
+```text
+Model/Multi_Focus_Fusion/Multi_Focus_Fusion/models
+```
+
+自动寻找最新权重，并将新的 checkpoint 保存回同一目录。
+
+这会：
+
+* 污染官方 checkpoint；
+* 不明确是从头训练、官方权重初始化还是断点续训；
+* 后续运行可能静默加载上一次实验结果。
+
+必须增加以下参数：
+
+```text
+--output-dir
+--init-mode
+--init-checkpoint-dir
+--resume-dir
+```
+
+允许值：
+
+```text
+--init-mode scratch
+--init-mode official
+--init-mode resume
+```
+
+语义必须严格区分。
+
+## 1. scratch
+
+```text
+--init-mode scratch
+```
+
+要求：
+
+* 不加载任何 G、E 或 optimizer checkpoint；
+* 模型随机初始化；
+* checkpoint 保存到 `--output-dir`；
+* 如果 output-dir 已存在且非空，默认拒绝启动，除非显式传入 `--overwrite-output 1`。
+
+## 2. official
+
+```text
+--init-mode official
+--init-checkpoint-dir path/to/official/models
+```
+
+要求：
+
+* 只加载模型权重；
+* 不加载旧 optimizer 状态；
+* 不继承旧 iteration；
+* 新 checkpoint 保存到独立 `--output-dir`；
+* 日志明确打印加载的 G/E 权重路径。
+
+## 3. resume
+
+```text
+--init-mode resume
+--resume-dir path/to/previous/run
+```
+
+要求：
+
+* 加载模型权重；
+* 加载 optimizer 状态；
+* 恢复 iteration；
+* 后续结果继续写入该运行目录或指定的新 resume 输出目录；
+* 不自动扫描官方模型目录。
+
+禁止继续使用“搜索目录中最新文件”来隐式决定训练模式。
+
+建议输出结构：
+
+```text
+outputs/train/swinfusion/
+└── <tag>/
+    ├── checkpoints/
+    ├── logs/
+    ├── options_resolved.json
+    ├── train_manifest.json
+    └── validation/
+```
+
+运行开始时保存完整配置和命令参数。
+
+---
+
+# 五、修复 SwinFusion 训练随机增强
+
+检查：
+
+```text
+D:\focus_exp\baselines\metadata_training.py
+```
+
+当前训练随机种子类似：
+
+```python
+seed = self.seed + index
+```
+
+这导致同一个样本每个 epoch 永远使用完全相同的：
+
+* crop；
+* flip；
+* rotation。
+
+修改要求：
+
+## 验证模式
+
+验证继续保持确定性：
+
+```python
+sample_seed = self.seed + index
+```
+
+同一个样本重复读取必须完全一致。
+
+## 训练模式
+
+训练模式必须随每次访问变化，但 A、B、GT仍使用同一组变换参数。
+
+推荐实现：
+
+```python
+import torch
+
+worker_seed = torch.initial_seed()
+sample_seed = (
+    worker_seed
+    + index
+    + self._access_counter
+) % (2**32)
+```
+
+不要使用全局 `random` 无约束状态。
+
+更稳妥的实现可以：
+
+1. 在 Dataset 中增加 `set_epoch(epoch)`；
+2. 训练循环每个 epoch 调用；
+3. 使用：
+
+```python
+sample_seed = (
+    self.seed
+    + self.epoch * 1_000_003
+    + index * 97
+    + worker_seed
+) % (2**32)
+```
+
+验收要求：
+
+* 同一个训练样本连续读取多次，crop/增强至少有机会不同；
+* 同一次读取中 A、B、GT 的 crop坐标、flip、rotation完全一致；
+* 验证样本重复读取结果完全一致；
+* `num_workers=0` 和 `num_workers>0` 都可运行。
+
+增加单元测试，不只检查 tensor shape，还要检查同步性和随机性。
+
+---
+
+# 六、修复 FusionDiff 和 ReDiffuse 的采样步数含义
+
+涉及文件：
+
+```text
+D:\focus_exp\baselines\ImageFusion\FusionDiff\infer_metadata.py
+D:\focus_exp\baselines\ReDiffuse\infer_metadata.py
+```
+
+当前错误做法：
+
+```python
+GaussianDiffusion(args.sampling_steps, beta_schedule)
+```
+
+这会根据 `sampling_steps` 重新构造噪声日程，并不是在训练好的 2000-step 模型上进行正确的少步采样。
+
+当前正式模型训练配置是：
+
+```text
+T = 2000
+```
+
+在没有实现并验证 DDIM、timestep respacing 或 DPM-Solver 前，必须禁止任意改变采样步数。
+
+修改为：
+
+```python
+trained_steps = int(config["diffusion_model"]["T"])
+
+if args.sampling_steps is None:
+    sampling_steps = trained_steps
+else:
+    sampling_steps = int(args.sampling_steps)
+
+if sampling_steps != trained_steps:
+    raise ValueError(
+        "This checkpoint was trained with "
+        f"T={trained_steps}. Current implementation does not "
+        "provide verified timestep respacing or DDIM sampling. "
+        f"Please use --sampling-steps {trained_steps}."
+    )
+```
+
+构造 diffusion 时始终使用训练配置：
+
+```python
+diffusion = GaussianDiffusion(
+    trained_steps,
+    beta_schedule,
+)
+```
+
+CLI中保留 `--sampling-steps` 只是为了显式校验，不得重新设计 schedule。
+
+README中明确写：
+
+```text
+FusionDiff/ReDiffuse正式推理必须使用2000步。
+少步采样尚未实现，不得通过直接修改T实现。
+```
+
+---
+
+# 七、修复 FusionDiff 和 ReDiffuse 的 loss 累加
+
+检查文件：
+
+```text
+D:\focus_exp\baselines\ImageFusion\FusionDiff\train.py
+D:\focus_exp\baselines\ReDiffuse\train.py
+```
+
+如果存在：
+
+```python
+loss_sum = 0
+loss_sum += scale_loss
+```
+
+需要改成：
+
+```python
+loss_sum = 0.0
+loss_sum += float(scale_loss.detach().item())
+```
+
+epoch 平均值使用普通 Python float。
+
+不能将仍带计算图的 Tensor 保存在整个 epoch 的累加变量中。
+
+同时检查：
+
+* 日志 loss；
+* TensorBoard loss；
+* validation loss；
+
+都不要无意保留计算图。
+
+---
+
+# 八、优化 train/val 重叠检查，不要解码整个数据集
+
+检查：
+
+```text
+D:\focus_exp\baselines\metadata_training.py
+```
+
+当前 `warn_split_overlap()` 如果调用 `prepare_item()`，会实际打开并解码 A、B、GT。
+
+对几千条数据会导致训练启动前重复读取大量图片。
+
+新增纯路径解析接口，例如：
+
+```python
+def inspect_item_paths(
+    item: dict,
+    index: int,
+    metadata_path: Path,
+) -> dict:
+    metadata_dir = metadata_path.resolve().parent
+
+    edits = item.get("edit_image")
+    if not isinstance(edits, list) or len(edits) < 2:
+        raise ValueError(
+            f"metadata index={index}: edit_image must contain at least 2 paths"
+        )
+
+    gt_value = item.get("image")
+
+    return {
+        "index": index,
+        "sample_id": get_sample_id(item, index),
+        "a_path": resolve_portable_path(edits[0], metadata_dir),
+        "b_path": resolve_portable_path(edits[1], metadata_dir),
+        "gt_path": (
+            resolve_portable_path(gt_value, metadata_dir)
+            if gt_value
+            else None
+        ),
+        "source_index": item.get("source_index"),
+    }
+```
+
+要求：
+
+* 不调用 PIL；
+* 不读取图片内容；
+* 只检查 metadata字段和路径字符串；
+* `edit_image[2:]` 不解析、不检查存在性；
+* 即使 focus图路径不存在，也不能影响训练，因为它们必须被忽略。
+
+重叠检查至少报告：
+
+* train/val sample_id交集；
+* GT路径交集；
+* A路径交集；
+* source_index交集；
+* 各自样本数量。
+
+默认只 warning，不直接中止；增加可选：
+
+```text
+--fail-on-split-overlap 1
+```
+
+---
+
+# 九、ReDiffuse 缺失 B_Conv.py 的处理
+
+文件：
+
+```text
+D:\focus_exp\baselines\ReDiffuse\Condition_Noise_Predictor\Rot_E_UNet.py
+```
+
+依赖：
+
+```python
+from . import B_Conv as fn
+```
+
+但仓库中没有：
+
+```text
+B_Conv.py
+```
+
+本次要求：
+
+1. 不允许根据调用方式猜写 `B_Conv.py`。
+2. 不允许反编译 `.pyc` 后直接当作可信源码提交。
+3. 不允许为了“跑通”删除旋转等变模块。
+4. 不允许用普通 `Conv2d` 替代。
+5. 不允许使用 `strict=False` 掩盖结构不匹配。
+
+请新增明确的启动预检：
+
+```python
+from pathlib import Path
+
+required_source = (
+    Path(__file__).resolve().parent
+    / "Condition_Noise_Predictor"
+    / "B_Conv.py"
+)
+
+if not required_source.is_file():
+    raise RuntimeError(
+        "ReDiffuse cannot run because the official source file "
+        f"is missing: {required_source}. "
+        "Do not reconstruct this file by guessing. Obtain the "
+        "verified source from the authors."
+    )
+```
+
+或者在 import 前提供同等清晰错误。
+
+同时：
+
+* `run_train_metadata_v2.sh`
+* `run_infer_metadata_v2.sh`
+
+必须在启动 ReDiffuse 前检查该文件。
+
+缺失时：
+
+```text
+METHOD=rediffuse
+```
+
+直接失败。
+
+在：
+
+```text
+METHOD=all
+```
+
+默认跳过并打印明确原因；严格模式下直接失败。
+
+不能把 ReDiffuse 标为 PASS。
+
+---
+
+# 十、清理 pycache 和无效编译文件
+
+删除仓库中所有：
+
+```text
+__pycache__/
+*.pyc
+*.pyo
+```
+
+更新根目录 `.gitignore`：
+
+```gitignore
+__pycache__/
+*.py[cod]
+*$py.class
+
+outputs/
+logs/
+runs/
+checkpoints/
+*.tmp
+```
+
+注意：
+
+* 不要误删作者发布的正式 `.pth`、`.pt` checkpoint；
+* ReDiffuse 的 `B_Conv.cpython-38.pyc` 删除前，需要在报告中注明它不是可靠源码；
+* 不提交 smoke 测试产生的输出图片。
+
+---
+
+# 十一、更新一键训练脚本
+
+将旧脚本：
+
+```text
+run_train_metadata_f329e3d.sh
+```
+
+替换或新增为：
+
+```text
+run_train_metadata_v2.sh
+```
+
+支持：
+
+```text
+METHOD=swinfusion
+METHOD=fusiondiff
+METHOD=all
+```
+
+暂时不允许：
+
+```text
+METHOD=rediffuse
+```
+
+除非真实 `B_Conv.py` 已恢复且严格加载测试通过。
+
+建议参数：
+
+```bash
+ROOT=/path/to/focus_exp
+TRAIN_META=/path/train.json
+VAL_META=/path/val.json
+METHOD=swinfusion
+OUTPUT_ROOT=/path/to/train_outputs
+TAG=experiment_name
+GPUS=1,2,3
+NUM_WORKERS=4
+MAX_SAMPLES=-1
+MAX_TRAIN_STEPS=-1
+SEED=17
+INIT_MODE=official
+INIT_CHECKPOINT_DIR=/path/to/official
+RESUME_DIR=
+```
+
+脚本要求：
+
+1. 使用 `set -Eeuo pipefail`。
+2. 所有 metadata路径必须存在。
+3. 自动创建独立输出目录。
+4. 输出目录已经存在且非空时拒绝覆盖。
+5. 打印完整配置。
+6. SwinFusion尊重外部 `CUDA_VISIBLE_DEVICES`。
+7. FusionDiff使用单卡或其原始支持方式。
+8. ReDiffuse缺源码时明确跳过或失败。
+9. DSIFT、IFCNN、ZMFF不要列入监督训练。
+10. 训练成功或失败都输出准确退出码。
+
+---
+
+# 十二、更新一键推理脚本
+
+将旧脚本：
+
+```text
+run_infer_metadata_f329e3d.sh
+```
+
+替换或新增为：
+
+```text
+run_infer_metadata_v2.sh
+```
+
+支持：
+
+```text
+METHOD=dsift
+METHOD=ifcnn
+METHOD=swinfusion
+METHOD=zmff
+METHOD=fusiondiff
+METHOD=rediffuse
+METHOD=all
+```
+
+规则：
+
+## DSIFT
+
+* 检查 MATLAB；
+* 没有 MATLAB 时跳过或失败；
+* 不需要 checkpoint。
+
+## IFCNN
+
+* 必须检查官方 checkpoint；
+* 不允许随机初始化推理。
+
+## SwinFusion
+
+* 必须使用 Multi-Focus Fusion checkpoint；
+* 不得误用其他任务权重；
+* 显式打印 checkpoint路径。
+
+## ZMFF
+
+* 每个样本重新初始化；
+* 支持 `ZMFF_ITERATIONS`；
+* 不需要 checkpoint。
+
+## FusionDiff
+
+* 必须传入训练完成的 checkpoint；
+* 没有官方权重时不能伪装成功；
+* 强制 `T=2000`。
+
+## ReDiffuse
+
+* 先检查真实 `B_Conv.py`；
+* 再检查 `model.pt`；
+* 使用 `strict=True` 加载；
+* 强制 `T=2000`；
+* 缺源码时禁止运行。
+
+统一参数：
+
+```bash
+ROOT=/path/to/focus_exp
+METADATA=/path/test.json
+OUTPUT_ROOT=/path/to/outputs
+METHOD=all
+CUDA_VISIBLE_GPU=0
+START_INDEX=0
+MAX_SAMPLES=-1
+OVERWRITE=0
+SEED=17
+STRICT=0
+```
+
+当前暂时不要求输出恢复到原图大小。
+
+---
+
+# 十三、增加真实 smoke test
+
+不要只运行 Dataset测试。
+
+## 1. 公共 metadata smoke
+
+包含两条数据：
+
+* 一条 `edit_image` 两张；
+* 一条 `edit_image` 四张。
+
+四图样本的 `edit_image[2]` 和 `[3]` 可以故意写成不存在的路径，用来证明代码确实完全忽略后两张。
+
+测试要求：
+
+* A、B正常读取；
+* GT来自`image`；
+* 不访问 focus路径；
+* train transform中 A/B/GT同步；
+* val transform确定。
+
+## 2. SwinFusion
+
+必须完成：
+
+* 参数解析 smoke；
+* Dataset读取；
+* 一个 batch forward；
+* 一个 optimizer step；
+* 一个 validation forward；
+* 官方 checkpoint 加载测试；
+* `scratch`、`official`、`resume` 三种模式至少做静态或最小 smoke。
+
+## 3. FusionDiff
+
+必须完成：
+
+* Dataset读取；
+* 一个 batch model forward；
+* 一个 optimizer step；
+* 一个最小验证过程；
+* checkpoint save/load；
+* 非2000 sampling step 必须按预期报错。
+
+## 4. ReDiffuse
+
+在缺少 `B_Conv.py` 时，测试应该验证：
+
+```text
+程序给出明确阻塞错误
+```
+
+不能写成 PASS。
+
+取得真实源码后才执行：
+
+* import；
+* 模型实例化；
+* `strict=True` checkpoint load；
+* 一个 forward；
+* 一个正式 sampling smoke。
+
+---
+
+# 十四、更新报告
+
+更新：
+
+```text
+D:\focus_exp\CODEX_METADATA_TRAINING_REPORT.md
+```
+
+新增表格：
+
+| Method     | Dataset smoke | Model forward | Optimizer step | Checkpoint strict load | Sampling smoke |            Train ready | Infer ready | Blocker           |
+| ---------- | ------------: | ------------: | -------------: | ---------------------: | -------------: | ---------------------: | ----------: | ----------------- |
+| DSIFT      |               |           N/A |            N/A |                    N/A |                |                    N/A |             |                   |
+| IFCNN      |               |               |            N/A |                        |                | No official train loop |             |                   |
+| SwinFusion |               |               |                |                        |                |                        |             |                   |
+| ZMFF       |               |     Per-image |            N/A |                    N/A |                |                    N/A |             |                   |
+| FusionDiff |               |               |                |                        |                |                        |             |                   |
+| ReDiffuse  |               |               |                |                        |                |                        |             | Missing B_Conv.py |
+
+必须明确区分：
+
+* 代码静态检查通过；
+* Dataset smoke通过；
+* 真实模型 forward通过；
+* checkpoint加载通过；
+* 正式采样通过。
+
+不知道或未运行的项目必须写：
+
+```text
+未验证
+```
+
+不能写“应该可以”。
+
+---
+
+# 十五、最终验收标准
+
+只有满足以下要求才能提交：
+
+1. SwinFusion不再缺少`Path`导入。
+2. 外部`CUDA_VISIBLE_DEVICES`不会被覆盖。
+3. SwinFusion有明确的scratch/official/resume模式。
+4. 官方权重目录与自有训练输出目录分离。
+5. 训练增强每个epoch可变化，同时A/B/GT同步。
+6. 验证增强完全确定。
+7. FusionDiff和ReDiffuse禁止伪少步采样。
+8. loss累计不保留计算图。
+9. split检查不再解码全部图片。
+10. ReDiffuse缺`B_Conv.py`时明确阻塞，不能伪装可运行。
+11. 清除pycache。
+12. 一键训练和推理脚本更新为v2。
+13. 至少完成SwinFusion和FusionDiff的真实最小forward/optimizer smoke。
+14. 报告准确记录未解决问题。
+
+完成后请输出：
+
+1. 修改文件列表；
+2. 每个文件的修改摘要；
+3. 所有实际执行的测试命令；
+4. 测试结果；
+5. SwinFusion三种初始化模式的运行命令；
+6. FusionDiff训练和推理命令；
+7. ReDiffuse当前是否仍被阻塞；
+8. 新提交哈希。
+
+请直接修改并测试，不要只返回建议。
