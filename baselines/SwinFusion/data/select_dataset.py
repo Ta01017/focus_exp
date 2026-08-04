@@ -65,6 +65,8 @@ def define_Dataset(dataset_opt):
         from data.dataset_mef import DatasetMEF as D
     elif dataset_type in ['mef', 'vif', 'mff', 'nir', 'med']:
         from data.dataset_wogt import Dataset as D
+    elif dataset_type in ['metadata_mff']:
+        from data.dataset_metadata import DatasetMetadataMFF as D
 
     # -----------------------------------------
     # common

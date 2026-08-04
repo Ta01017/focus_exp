@@ -33,6 +33,16 @@ Set the training and inference parameters in config.json, it is very important.
 python train.py
 ```
 
+Metadata smoke（正式训练必须使用不同 train/val 文件）：
+
+```cmd
+python ..\..\test_metadata_dataset.py --metadata ..\..\smoke_metadata\metadata.json --size 256 --max-samples 2
+python train.py --dataset-format metadata --train-metadata ..\..\smoke_metadata\metadata.json --val-metadata ..\..\smoke_metadata\metadata.json --max-samples 2 --max-train-steps 1 --num-workers 0 --seed 17
+python infer_metadata.py --metadata ..\..\smoke_metadata\metadata.json --output-dir ..\..\..\outputs\FusionDiff --checkpoint path\model.pt --device cpu --max-samples 2
+```
+
+Metadata 模式只替换 A/B/GT 数据来源，不改变扩散公式、条件排列、noise schedule 或 loss。`--resume` 可恢复模型及 checkpoint 中存在的 optimizer 状态。
+
 ### Testing with pre-trained model
 You need to provide the path of the pretrained model in inference.py (line 78).
 

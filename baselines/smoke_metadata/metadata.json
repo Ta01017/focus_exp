@@ -1,0 +1,17 @@
+[
+  {
+    "image": "images/sample1_gt.ppm",
+    "edit_image": ["images/sample1_a.ppm", "images/sample1_b.ppm"],
+    "source_index": 1
+  },
+  {
+    "image": "images/sample2_gt.ppm",
+    "edit_image": [
+      "images/sample2_a.ppm",
+      "images/sample2_b.ppm",
+      "images/DOES_NOT_EXIST_focus_a.png",
+      "images/DOES_NOT_EXIST_focus_b.png"
+    ],
+    "source_index": 2
+  }
+]

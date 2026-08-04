@@ -60,6 +60,16 @@ Run
 ```
 python train.py
 ```
+
+Metadata smoke（正式训练必须使用不同 train/val 文件）：
+
+```cmd
+python ..\test_metadata_dataset.py --metadata ..\smoke_metadata\metadata.json --channels 1 --size 256 --max-samples 2
+python train.py --dataset-format metadata --train-metadata ..\smoke_metadata\metadata.json --val-metadata ..\smoke_metadata\metadata.json --max-samples 2 --max-train-steps 1 --num-workers 0 --seed 17
+python infer_metadata.py --metadata ..\smoke_metadata\metadata.json --output-dir ..\..\outputs\ReDiffuse --checkpoint weights\model.pt --device cpu --max-samples 2
+```
+
+Metadata 模式保留旋转等变网络、Y 通道、同步 256 crop、扩散 loss 和条件排列。checkpoint 不存在或状态不匹配时推理会失败，不会使用随机权重生成结果。
 We also provide the pre-trained weights in the ``./weights/model.pt``.
 ### 🏄 Testing
 

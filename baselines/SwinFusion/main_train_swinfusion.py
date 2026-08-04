@@ -46,9 +46,29 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     parser.add_argument('--launcher', default='pytorch', help='job launcher')
     parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--dist', default=False)
+    parser.add_argument('--train-metadata')
+    parser.add_argument('--val-metadata')
+    parser.add_argument('--start-index', type=int, default=0)
+    parser.add_argument('--max-samples', type=int, default=-1)
+    parser.add_argument('--num-workers', type=int)
+    parser.add_argument('--seed', type=int)
+    parser.add_argument('--max-train-steps', type=int, default=-1)
 
-    opt = option.parse(parser.parse_args().opt, is_train=True)
-    opt['dist'] = parser.parse_args().dist
+    args = parser.parse_args()
+    opt = option.parse(args.opt, is_train=True)
+    opt['dist'] = args.dist
+    if bool(args.train_metadata) != bool(args.val_metadata):
+        raise ValueError('--train-metadata and --val-metadata must be provided together')
+    if args.train_metadata:
+        opt['datasets']['train']['dataset_type'] = 'metadata_mff'
+        opt['datasets']['train']['metadata'] = str(Path(args.train_metadata).resolve())
+        opt['datasets']['test']['dataset_type'] = 'metadata_mff'
+        opt['datasets']['test']['metadata'] = str(Path(args.val_metadata).resolve())
+        opt['datasets']['train']['start_index'] = args.start_index
+        opt['datasets']['train']['max_samples'] = args.max_samples
+        opt['datasets']['test']['max_samples'] = args.max_samples
+        if args.num_workers is not None:
+            opt['datasets']['train']['dataloader_num_workers'] = args.num_workers
 
     # ----------------------------------------
     # distributed settings
@@ -100,7 +120,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     # ----------------------------------------
     # seed
     # ----------------------------------------
-    seed = opt['train']['manual_seed']
+    seed = args.seed if args.seed is not None else opt['train']['manual_seed']
     if seed is None:
         seed = random.randint(1, 10000)
     print('Random seed: {}'.format(seed))
@@ -135,17 +155,20 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
                                           pin_memory=True,
                                           sampler=train_sampler)
             else:
+                drop_last = len(train_set) >= dataset_opt['dataloader_batch_size']
+                if not drop_last:
+                    logger.info('Dataset smaller than batch size; disabling drop_last for smoke.')
                 train_loader = DataLoader(train_set,
                                           batch_size=dataset_opt['dataloader_batch_size'],
                                           shuffle=dataset_opt['dataloader_shuffle'],
                                           num_workers=dataset_opt['dataloader_num_workers'],
-                                          drop_last=True,
+                                          drop_last=drop_last,
                                           pin_memory=True)
 
         elif phase == 'test':
             test_set = define_Dataset(dataset_opt)
             test_loader = DataLoader(test_set, batch_size=1,
-                                     shuffle=False, num_workers=1,
+                                     shuffle=False, num_workers=args.num_workers if args.num_workers is not None else 1,
                                      drop_last=False, pin_memory=True)
         else:
             raise NotImplementedError("Phase [%s] is not recognized." % phase)
@@ -167,10 +190,7 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     # Step--4 (main training)
     # ----------------------------------------
     '''
-    if opt['datasets']['dataset_type'] in ['mef_GT', 'mff_GT']:
-        need_GT = True
-    else:
-        need_GT = False
+    need_GT = opt['datasets']['train']['dataset_type'] in ['mef_GT', 'mff_GT', 'metadata_mff']
     for epoch in range(5000):  # keep running
         for i, train_data in enumerate(train_loader):
 
@@ -191,6 +211,13 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
             # 3) optimize parameters
             # -------------------------------
             model.optimize_parameters(current_step)
+            if args.max_train_steps >= 0 and current_step >= args.max_train_steps:
+                for test_data in test_loader:
+                    model.feed_data(test_data, need_GT=True, phase='test')
+                    model.test()
+                    print('one-batch metadata validation: PASS')
+                    break
+                return
 
             # -------------------------------
             # 4) training information

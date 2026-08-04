@@ -6,6 +6,7 @@ import json
 import os
 import re
 import time
+import random
 from pathlib import Path, PureWindowsPath
 
 from PIL import Image, ImageOps
@@ -24,7 +25,7 @@ def bool01(value):
     return value in {"1", "true"}
 
 
-def _portable_path(raw, base):
+def resolve_portable_path(raw, base):
     """Resolve native paths and Windows paths, including backslashes on POSIX."""
     if raw in (None, ""):
         return None
@@ -40,7 +41,11 @@ def _portable_path(raw, base):
     return path.resolve() if path.is_absolute() else (base / path).resolve()
 
 
-def sample_id(item, index):
+# Backward-compatible private name used by the first inference adapters.
+_portable_path = resolve_portable_path
+
+
+def get_sample_id(item, index):
     if item.get("source_index") is not None:
         raw = str(item["source_index"])
     elif item.get("image"):
@@ -58,6 +63,9 @@ def sample_id(item, index):
     return raw.zfill(6) if raw.isdigit() else raw
 
 
+sample_id = get_sample_id
+
+
 def load_metadata(metadata, start_index=0, max_samples=-1):
     metadata = Path(metadata).expanduser().resolve()
     with metadata.open("r", encoding="utf-8-sig") as handle:
@@ -68,43 +76,108 @@ def load_metadata(metadata, start_index=0, max_samples=-1):
     return metadata, list(enumerate(items))[start_index:stop]
 
 
-def prepare_item(item, index, metadata_path, size_policy="error"):
+def validate_training_item(item, index=None):
+    if not isinstance(item, dict):
+        raise ValueError(f"metadata item {index} must be an object")
+    if not item.get("image"):
+        raise ValueError(f"metadata item {index} requires 'image' (GT) in train/val mode")
+
+
+def _open_rgb(path, label):
+    if path is None or not path.is_file():
+        raise FileNotFoundError(f"{label} image not found: {path}")
+    try:
+        with Image.open(path) as source:
+            image = ImageOps.exif_transpose(source).convert("RGB")
+            image.load()
+        return image
+    except Exception as exc:
+        raise ValueError(f"damaged or unsupported {label} image {path}: {exc}") from exc
+
+
+def prepare_item(item, index, metadata_path, size_policy="error", mode="infer"):
     if not isinstance(item, dict):
         raise ValueError("metadata item must be an object")
     edits = item.get("edit_image")
     if not isinstance(edits, list) or len(edits) < 2:
         raise ValueError("edit_image must contain at least two paths")
+    if mode not in {"infer", "train", "val"}:
+        raise ValueError("mode must be 'infer', 'train', or 'val'")
+    if mode != "infer":
+        validate_training_item(item, index)
+    metadata_path = Path(metadata_path).resolve()
     base = metadata_path.parent
-    a_path = _portable_path(edits[0], base)
-    b_path = _portable_path(edits[1], base)  # deliberately ignore [2:]
-    gt_path = _portable_path(item.get("image"), base)
-    for label, path in (("A", a_path), ("B", b_path)):
-        if not path.is_file():
-            raise FileNotFoundError(f"{label} image not found: {path}")
-    try:
-        with Image.open(a_path) as source:
-            a = ImageOps.exif_transpose(source).convert("RGB")
-        with Image.open(b_path) as source:
-            b = ImageOps.exif_transpose(source).convert("RGB")
-        a.load(); b.load()
-    except Exception as exc:
-        raise ValueError(f"damaged or unsupported image: {exc}") from exc
+    a_path = resolve_portable_path(edits[0], base)
+    b_path = resolve_portable_path(edits[1], base)  # deliberately ignore [2:]
+    gt_path = resolve_portable_path(item.get("image"), base)
+    a = _open_rgb(a_path, "A")
+    b = _open_rgb(b_path, "B")
+    target = _open_rgb(gt_path, "GT") if gt_path is not None else None
     original_size = a.size
     original_a = a.copy()
-    if b.size != a.size:
+    images = [a, b] + ([target] if target is not None else [])
+    sizes = [image.size for image in images]
+    if len(set(sizes)) != 1:
         if size_policy == "error":
-            raise ValueError(f"A/B size mismatch: A={a.size}, B={b.size}")
-        if size_policy == "resize_b_to_a":
+            raise ValueError(f"A/B/GT size mismatch: {sizes}")
+        if size_policy in {"resize_b_to_a", "resize_all_to_a"}:
             b = b.resize(a.size, Image.Resampling.BICUBIC)
+            if target is not None:
+                target = target.resize(a.size, Image.Resampling.BICUBIC)
         elif size_policy == "center_crop_common":
-            width, height = min(a.width, b.width), min(a.height, b.height)
-            a = ImageOps.fit(a, (width, height), method=Image.Resampling.LANCZOS, centering=(.5, .5))
-            b = ImageOps.fit(b, (width, height), method=Image.Resampling.LANCZOS, centering=(.5, .5))
+            width = min(image.width for image in images)
+            height = min(image.height for image in images)
+            def center_crop(image):
+                left, top = (image.width-width)//2, (image.height-height)//2
+                return image.crop((left, top, left+width, top+height))
+            a, b = center_crop(a), center_crop(b)
+            if target is not None:
+                target = center_crop(target)
         else:
             raise ValueError(f"unknown size policy: {size_policy}")
-    return {"index": index, "sample_id": sample_id(item, index), "a_path": a_path,
+    return {"index": index, "sample_id": get_sample_id(item, index), "a_path": a_path,
             "b_path": b_path, "gt_path": gt_path, "a": a, "b": b,
-            "original_size": original_size, "original_a": original_a, "working_size": a.size}
+            "image_a": a, "image_b": b, "target": target,
+            "prompt": item.get("prompt", ""), "source_dataset": item.get("source_dataset", ""),
+            "source_index": item.get("source_index"), "original_size": original_size,
+            "original_a": original_a, "working_size": a.size}
+
+
+def synchronized_preprocess(sample, size=None, crop_size=None, mode="val", seed=None,
+                            hflip=False, vflip=False, rotate90=False):
+    """Apply one set of geometry parameters to A, B, and GT."""
+    images = [sample["image_a"], sample["image_b"]]
+    if sample.get("target") is not None:
+        images.append(sample["target"])
+    if size is not None:
+        output_size = (size, size) if isinstance(size, int) else tuple(size)
+        images = [image.resize(output_size, Image.Resampling.BICUBIC) for image in images]
+    rng = random.Random(seed)
+    if crop_size is not None:
+        crop = (crop_size, crop_size) if isinstance(crop_size, int) else tuple(crop_size)
+        width, height = images[0].size
+        if width < crop[0] or height < crop[1]:
+            raise ValueError(f"crop {crop} exceeds image size {(width, height)}")
+        if mode == "train":
+            left, top = rng.randint(0, width-crop[0]), rng.randint(0, height-crop[1])
+        else:
+            left, top = (width-crop[0])//2, (height-crop[1])//2
+        images = [image.crop((left, top, left+crop[0], top+crop[1])) for image in images]
+    if mode == "train":
+        if hflip and rng.random() < .5:
+            images = [ImageOps.mirror(image) for image in images]
+        if vflip and rng.random() < .5:
+            images = [ImageOps.flip(image) for image in images]
+        if rotate90:
+            turns = rng.randrange(4)
+            if turns:
+                images = [image.rotate(90*turns, expand=True) for image in images]
+    result = dict(sample)
+    result["image_a"] = result["a"] = images[0]
+    result["image_b"] = result["b"] = images[1]
+    result["target"] = images[2] if len(images) == 3 else None
+    result["working_size"] = images[0].size
+    return result
 
 
 def base_record(index, item, metadata_path, output_dir):

@@ -97,6 +97,18 @@ MEF-GAN, IFCNN SDNet, U2Fusion, and our SwinFusion.
 
 
 ## Multi-Focus Image Fusion (MFF)
+
+### Metadata train/val smoke
+
+以下入口仍使用官方 MFF 网络、loss、optimizer、scheduler、patch size 和 normalization；GT 被同步读取并用于确定性验证配对，官方 MFF loss 本身仍是 A/B 无监督融合 loss。
+
+```cmd
+python ..\test_metadata_dataset.py --metadata ..\smoke_metadata\metadata.json --channels 1 --max-samples 2
+python main_train_swinfusion.py --opt options\swinir\train_swinfusion_mff.json --train-metadata ..\smoke_metadata\metadata.json --val-metadata ..\smoke_metadata\metadata.json --max-samples 2 --max-train-steps 1 --num-workers 0 --seed 17
+python infer_metadata.py --metadata ..\smoke_metadata\metadata.json --output-dir ..\..\outputs\SwinFusion --checkpoint path\to\MFIF_G.pth --device cpu --max-samples 2
+```
+
+正式训练必须传不同的 train/val metadata。
 ### To Train
 Download the training dataset from [**MFI-WHU dataset**](https://github.com/HaoZhang1018/MFI-WHU), and put it in **./Dataset/trainsets/MEF**. 
 

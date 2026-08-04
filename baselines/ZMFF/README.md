@@ -36,6 +36,14 @@ For testing, please run:
 python main.py
 ```
 
+Metadata zero-shot smoke：
+
+```cmd
+python infer_metadata.py --metadata ..\smoke_metadata\metadata.json --output-dir ..\..\outputs\ZMFF --device cpu --iterations 1 --seed 17 --start-index 0 --max-samples 2
+```
+
+每个样本都会重新设置 seed，并重新构造网络、mask/noise inputs 和 optimizer；GT 不参与优化，`edit_image[2:]` 被忽略。ZMFF 不是普通监督训练方法，因此没有新增离线训练入口。
+
 ## results
 The output results will be stored in `./result`.
 

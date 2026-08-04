@@ -1,0 +1,680 @@
+请检查并修改仓库：
+
+D:\focus_exp
+
+仓库地址：
+https://github.com/Ta01017/focus_exp
+
+本次任务的核心目标是：
+
+1. 保留六个原始 baseline 的模型结构、损失函数、训练策略和推理流程。
+2. 审计现有 metadata.json 推理适配是否正确。
+3. 将支持监督训练的 baseline 真正接入 metadata.json 训练和验证数据。
+4. DSIFT 和 ZMFF 只需完善 metadata 推理，不要虚构普通监督训练流程。
+5. 当前暂时不要求输出恢复到原图分辨率，但 A、B、GT 必须执行严格同步的几何预处理。
+
+不要只新增演示代码或独立 Dataset 后就停止。必须确认原始训练入口真正使用了 metadata 数据。
+
+---
+
+# 一、需要检查的项目
+
+仓库路径：
+
+D:\focus_exp\baselines
+
+需要处理：
+
+1. DSIFT-MFIF
+2. IFCNN
+3. SwinFusion
+4. ImageFusion\FusionDiff
+5. ReDiffuse
+6. ZMFF
+
+公共代码：
+
+D:\focus_exp\baselines\metadata_dataset.py
+D:\focus_exp\baselines\metadata_smoke_common.py
+
+先审计已有修改，不要重复创建功能相同的脚本。
+
+---
+
+# 二、metadata.json 格式
+
+顶层是 JSON list，每个元素可能是：
+
+{
+"image": "images/000001_target.png",
+"edit_image": [
+"images/000001_a.png",
+"images/000001_b.png",
+"images/000001_focus_a.png",
+"images/000001_focus_b.png"
+],
+"prompt": "Fuse two images with different focus into a single all-in-focus image.",
+"seed": 123,
+"source_dataset": "custom_dataset",
+"source_index": 1
+}
+
+统一解释规则：
+
+* `image`：GT，全监督训练和验证时必须存在。
+* `edit_image[0]`：输入 A。
+* `edit_image[1]`：输入 B。
+* `edit_image[2:]`：暂时全部忽略。
+* 即使 `edit_image` 有 4 张、5 张或更多，也只能取前两张。
+* 不得把 focus map 作为这些 baseline 的额外输入。
+* 推理时 `image` 可以不存在。
+* 训练和验证时 `image` 缺失必须给出清晰错误。
+* 相对路径以 metadata.json 所在目录为基准。
+* 支持 Windows 绝对路径、Linux 绝对路径和相对路径。
+* 支持 UTF-8 和 UTF-8 BOM JSON。
+
+不要根据文件名猜测 A、B、GT；以 JSON 字段为准。
+
+---
+
+# 三、先审计公共 metadata_dataset.py
+
+检查现有实现，必要时扩展，但不要破坏已有推理脚本。
+
+公共模块至少应提供以下能力：
+
+## 1. 元数据读取
+
+建议提供清晰的接口，例如：
+
+* `load_metadata(...)`
+* `prepare_item(...)`
+* `resolve_portable_path(...)`
+* `get_sample_id(...)`
+* `validate_training_item(...)`
+
+## 2. 返回完整样本信息
+
+建议公共层返回 PIL RGB 图像和元信息：
+
+{
+"index": index,
+"sample_id": sample_id,
+"image_a": pil_a,
+"image_b": pil_b,
+"target": pil_gt_or_none,
+"a_path": path_a,
+"b_path": path_b,
+"gt_path": path_gt_or_none,
+"prompt": prompt,
+"source_dataset": source_dataset,
+"source_index": source_index
+}
+
+不要在公共层强制采用某个模型的 tensor normalization。
+
+每个 baseline 自己按照原始模型的要求完成：
+
+* 转 tensor；
+* 归一化；
+* resize；
+* crop；
+* padding；
+* 通道排列。
+
+## 3. GT 加载
+
+现有推理读取器如果只保存 `gt_path`，请补充训练模式下真正加载 GT 的能力。
+
+GT 必须：
+
+* EXIF transpose；
+* 转 RGB；
+* 检查损坏；
+* 和 A、B 一起进入同步预处理。
+
+## 4. 模式区分
+
+明确支持：
+
+* `mode="infer"`：GT 可选；
+* `mode="train"`：GT 必须存在；
+* `mode="val"`：GT 必须存在。
+
+训练或验证中缺失 GT 时，不允许静默跳过 target 或把 A 当 GT。
+
+---
+
+# 四、同步图像预处理
+
+本阶段暂时不要求保持原图大小，但必须保证 A、B、GT 的变换完全同步。
+
+## 必须满足
+
+同一个样本中：
+
+* resize 参数一致；
+* crop 坐标一致；
+* horizontal flip 一致；
+* vertical flip 一致；
+* 90 度旋转一致；
+* padding 一致。
+
+禁止分别调用三个随机 transform：
+
+transform(A)
+transform(B)
+transform(GT)
+
+因为这样会产生不同随机裁剪。
+
+正确方式是：
+
+1. 先统一生成随机参数；
+2. 使用同一组参数处理 A、B、GT。
+
+## 训练预处理
+
+优先保留各原仓库的原始训练尺寸和增强策略。
+
+如果原仓库使用：
+
+* 固定 resize；
+* random crop；
+* patch crop；
+* horizontal flip；
+* rotation；
+
+则只把这些操作改成 A/B/GT 同步版本，不要擅自改变训练协议。
+
+## 验证预处理
+
+必须是确定性的，例如：
+
+* 固定 resize；
+* center crop；
+* padding；
+* 或原仓库已有验证预处理。
+
+不能在验证阶段随机 crop 或随机 flip。
+
+## 尺寸不同
+
+A、B、GT尺寸不一致时，不要静默各自 resize 到任意尺寸。
+
+为训练 Dataset 增加明确策略，例如：
+
+* `error`
+* `resize_all_to_a`
+* `center_crop_common`
+
+默认建议使用 `error`。
+
+如果原训练模型本身固定 resize 到相同尺寸，可以先验证三张原始图的几何关系，再统一 resize。
+
+---
+
+# 五、统一训练和验证接口
+
+支持训练的仓库应增加或兼容以下参数：
+
+* `--train-metadata`
+* `--val-metadata`
+* `--dataset-format metadata`
+* `--start-index`
+* `--max-samples`
+* `--num-workers`
+* `--seed`
+
+若仓库使用 config/json/yaml，不强制改成 argparse，但配置文件必须能指定：
+
+train_metadata
+val_metadata
+
+必须保留原始目录式 Dataset，通过配置选择：
+
+* 原始 Dataset；
+* metadata Dataset。
+
+不要删除或覆盖作者原有数据读取方式。
+
+---
+
+# 六、方法分别处理
+
+## A. DSIFT-MFIF
+
+DSIFT 是 MATLAB 非学习式算法。
+
+要求：
+
+1. 保留原始 MATLAB 算法。
+2. 检查现有 `infer_metadata.m` 是否正确读取：
+
+   * `edit_image[0]`
+   * `edit_image[1]`
+   * 忽略 `edit_image[2:]`
+3. 支持相对路径。
+4. 支持批量 metadata 推理。
+5. 单个失败样本记录错误并继续。
+6. 不新增训练脚本。
+7. 不将 DSIFT 重写为未经验证的 Python 版本。
+8. 更新 Windows `.bat` 示例。
+
+验收：
+
+* 两图 edit_image 正常。
+* 四图 edit_image 只读前两张。
+* 输出可保存。
+* 不要求恢复原始尺寸。
+
+---
+
+## B. IFCNN
+
+先检查官方仓库是否包含真正可用的训练入口。
+
+### 如果存在官方训练代码
+
+要求：
+
+1. 新增 metadata Dataset adapter。
+2. 原模型输入仍然是双图。
+3. target 来自 metadata 的 `image`。
+4. 保留原始损失函数、融合规则和训练超参数。
+5. 支持：
+
+   * 从头训练；
+   * 官方 checkpoint 加载；
+   * checkpoint resume。
+6. 日志必须打印实际 checkpoint 路径。
+7. 不允许 checkpoint 未加载却静默使用随机模型推理。
+8. 训练和验证都接入 metadata。
+
+### 如果仓库没有完整训练代码
+
+不要自行编造一套与论文不一致的训练算法。
+
+应做到：
+
+1. 完善 metadata 推理。
+2. 提供可复用的 metadata Dataset adapter。
+3. 在最终报告中明确：
+
+   * 官方仓库无完整训练入口；
+   * 当前只能可靠完成官方 checkpoint 推理；
+   * 后续若需重训，需要额外复现训练协议。
+
+---
+
+## C. SwinFusion
+
+只修改 Multi-Focus Fusion 路线。
+
+要求：
+
+1. 找到官方 MFIF 训练入口、配置和模型。
+2. 不要误用：
+
+   * infrared-visible；
+   * medical；
+   * multi-exposure；
+   * pan-sharpening；
+     等其他任务配置。
+3. 将 MFIF 训练 Dataset 接入：
+
+   * `train_metadata.json`
+   * `val_metadata.json`
+4. A、B、GT 同步预处理。
+5. 保留官方 MFIF：
+
+   * 网络结构；
+   * loss；
+   * optimizer；
+   * scheduler；
+   * patch size；
+   * normalization。
+6. 支持加载官方 MFIF checkpoint 推理。
+7. 支持从官方 checkpoint 继续训练。
+8. 明确 encoder/generator 等多个权重文件的加载关系。
+9. 检查训练入口是否真的迭代 metadata Dataset，而不是仍读取原目录。
+
+至少提供：
+
+* metadata smoke inference；
+* 1 batch train smoke；
+* 1 batch val smoke。
+
+---
+
+## D. FusionDiff
+
+路径：
+
+D:\focus_exp\baselines\ImageFusion\FusionDiff
+
+要求：
+
+1. 审计原始训练逻辑：
+
+   * A、B如何作为条件；
+   * GT如何作为加噪/预测目标；
+   * loss如何计算；
+   * 推理如何采样。
+2. 只替换数据来源，不改扩散公式。
+3. metadata中：
+
+   * A=`edit_image[0]`
+   * B=`edit_image[1]`
+   * GT=`image`
+4. 支持：
+
+   * `--train-metadata`
+   * `--val-metadata`
+   * checkpoint resume；
+   * 单样本和批量推理。
+5. 保留原始 timestep、noise schedule、sampling steps 和条件拼接方式。
+6. 不要因为双图输入而重新设计新的通道结构，除非原代码本身有明显 bug。
+7. 如果没有官方 checkpoint：
+
+   * 明确报错；
+   * 不允许随机权重伪装成有效结果；
+   * 训练 smoke test可以使用随机初始化，但日志必须明确标注。
+8. 验证时使用确定性 seed，并保存少量预测样例。
+9. 检查训练和推理的输入排列完全一致。
+
+至少完成：
+
+* Dataset smoke；
+* model forward smoke；
+* 1 optimizer step；
+* 1 validation sampling smoke。
+
+若完整 sampling 太慢，可使用最小采样步数做 smoke，但不能改默认正式配置。
+
+---
+
+## E. ReDiffuse
+
+要求：
+
+1. 审计官方 `model.pt` 加载是否成功。
+2. 保留旋转等变模块、噪声预测和采样流程。
+3. metadata输入只能取前两张。
+4. GT来自 `image`。
+5. 将原训练代码接入：
+
+   * train metadata；
+   * val metadata。
+6. 支持官方 checkpoint：
+
+   * 推理；
+   * 继续训练。
+7. 不要把作者验证集路径硬编码保留在 metadata 模式中。
+8. 验证时从 A、B生成结果并与 GT配对。
+9. 固定 seed并记录 sampling steps。
+10. 训练和推理条件构造必须一致。
+
+至少完成：
+
+* 官方 checkpoint load smoke；
+* 两图 metadata inference smoke；
+* 四图 metadata inference smoke；
+* 1 batch train smoke；
+* 1 batch val smoke。
+
+如果官方仓库没有公开完整训练入口，明确报告，不要虚构。
+
+---
+
+## F. ZMFF
+
+ZMFF 是逐样本 zero-shot 优化，不是普通监督训练。
+
+要求：
+
+1. 不新增离线监督训练流程。
+2. 每个 metadata 样本必须：
+
+   * 重新初始化网络；
+   * 重新初始化 optimizer；
+   * 重新初始化 mask；
+   * 重新设置 seed。
+3. 不得在样本间复用优化后的参数。
+4. 只使用 A、B。
+5. GT不参与 zero-shot优化，仅用于之后评测。
+6. 支持：
+
+   * `--iterations`
+   * `--seed`
+   * `--start-index`
+   * `--max-samples`
+7. 记录每个样本实际迭代次数和运行时间。
+8. 检查四图 metadata确实忽略后两张。
+
+---
+
+# 七、训练 Dataset 的统一字段
+
+支持训练的 repo 内部 Dataset 至少应能返回：
+
+{
+"a": tensor_a,
+"b": tensor_b,
+"target": tensor_gt,
+"index": index,
+"sample_id": sample_id,
+"a_path": str,
+"b_path": str,
+"gt_path": str,
+"prompt": str,
+"source_dataset": str,
+"source_index": optional
+}
+
+如果原训练循环要求 tuple，可在 adapter 最后一层转换，但公共 metadata 信息不要丢失。
+
+---
+
+# 八、训练/验证划分
+
+不允许同一个 metadata 同时作为 train 和 val，除非 smoke test。
+
+正式训练入口要求分别传入：
+
+--train-metadata path\to\train_metadata.json
+--val-metadata path\to\val_metadata.json
+
+启动时输出：
+
+* train样本数；
+* val样本数；
+* metadata绝对路径；
+* 前3个样本的 A/B/GT路径；
+* 是否发现 sample_id 重复；
+* 是否发现 train/val 路径重复。
+
+增加可选检查：
+
+* train/val sample_id交集；
+* GT路径交集；
+* source_index交集。
+
+发现明显重叠时给出警告。
+
+---
+
+# 九、不要做的事情
+
+1. 不要更改任何 baseline 的网络结构。
+2. 不要更改论文原始 loss。
+3. 不要统一所有模型的训练分辨率。
+4. 不要强制所有模型使用同一种 normalization。
+5. 不要将 focus map作为额外输入。
+6. 不要把 `edit_image[2:]`用于模型。
+7. 不要为了“跑通”而用 A替代GT。
+8. 不要随机生成缺失 checkpoint。
+9. 不要删除原始目录式 Dataset。
+10. 不要只新增独立 Dataset 而不接入训练入口。
+11. 不要要求输出恢复到原始分辨率。
+12. 不要运行长时间完整训练。
+13. 不要下载或提交大型新权重文件。
+14. 不要提交 `__pycache__`、日志、临时输出或测试图片。
+
+---
+
+# 十、测试数据
+
+新增一个公共 smoke metadata，至少包含：
+
+## 样本1：两图
+
+{
+"image": "images/sample1_gt.png",
+"edit_image": [
+"images/sample1_a.png",
+"images/sample1_b.png"
+],
+"source_index": 1
+}
+
+## 样本2：四图
+
+{
+"image": "images/sample2_gt.png",
+"edit_image": [
+"images/sample2_a.png",
+"images/sample2_b.png",
+"images/sample2_focus_a.png",
+"images/sample2_focus_b.png"
+],
+"source_index": 2
+}
+
+要求测试明确验证：
+
+* 样本2只读取前两张；
+* focus图即使不存在，也不应影响读取，因为后两张应被忽略；
+* A/B/GT同步裁剪后尺寸完全相同；
+* target确实来自`image`；
+* train Dataset返回有效tensor；
+* val Dataset结果确定；
+* 单个坏样本错误信息清晰。
+
+---
+
+# 十一、需要提供的命令
+
+每个支持训练的项目必须在README给出：
+
+## Dataset smoke
+
+示例：
+
+python test_metadata_dataset.py ^
+--metadata D:\path\train_metadata.json ^
+--max-samples 2
+
+## 训练 smoke
+
+示例形式：
+
+python train_xxx.py ^
+--dataset-format metadata ^
+--train-metadata D:\path\train_metadata.json ^
+--val-metadata D:\path\val_metadata.json ^
+--max-train-steps 1 ^
+--num-workers 0
+
+实际参数名按仓库原训练入口设计，但功能必须等价。
+
+## 推理 smoke
+
+python infer_metadata.py ^
+--metadata D:\path\val_metadata.json ^
+--output-dir D:\focus_exp\outputs\METHOD ^
+--max-samples 2
+
+---
+
+# 十二、Windows兼容
+
+开发路径是：
+
+D:\focus_exp
+
+要求：
+
+* PowerShell 和 cmd 路径可用；
+* 路径中允许空格；
+* 不依赖 Bash；
+* `num_workers=0` 可以运行；
+* Python multiprocessing入口有：
+  `if __name__ == "__main__":`
+* Windows 下不能使用只在Linux存在的路径操作。
+* 不硬编码 `/data/...`。
+* 不使用字符串拼接构造路径，统一使用 pathlib。
+
+同时不要破坏后续复制到Linux服务器运行的能力。
+
+---
+
+# 十三、文档和最终报告
+
+请更新：
+
+D:\focus_exp\README.md
+D:\focus_exp\baselines\README.md
+
+并新增：
+
+D:\focus_exp\CODEX_METADATA_TRAINING_REPORT.md
+
+报告必须包含表格：
+
+| Method | Metadata inference | Metadata train | Metadata val | Official checkpoint | Resume | Smoke status | Remaining issue |
+| ------ | ------------------ | -------------- | ------------ | ------------------- | ------ | ------------ | --------------- |
+
+分别说明：
+
+* DSIFT：推理状态；
+* IFCNN：训练入口是否真实存在；
+* SwinFusion：MFIF训练状态；
+* ZMFF：逐样本优化状态；
+* FusionDiff：训练/验证/权重状态；
+* ReDiffuse：训练/验证/官方权重状态。
+
+还要列出：
+
+1. 修改文件列表；
+2. 每个文件修改目的；
+3. 每个方法的数据流：
+   `metadata → A/B/GT → transform → model/loss`
+4. 实际执行的测试命令；
+5. smoke test结果；
+6. 未解决问题；
+7. 哪些结论因缺少环境、MATLAB、CUDA或checkpoint无法验证。
+
+不知道的地方必须写“不知道”或“官方仓库未提供”，不要猜测。
+
+---
+
+# 十四、验收标准
+
+任务只有在以下条件满足时才算完成：
+
+* 公共读取器支持两图和四图metadata。
+* 四图时只取前两张。
+* 训练时GT来自`image`。
+* A/B/GT同步预处理。
+* IFCNN、SwinFusion、FusionDiff、ReDiffuse中，凡官方仓库存在可用训练入口的，都已真正接入metadata Dataset。
+* 原始训练和推理方式仍然保留。
+* DSIFT、ZMFF没有被错误改造成监督训练方法。
+* 至少完成CPU Dataset smoke。
+* 有环境时完成1个batch或1个step训练 smoke。
+* 没有环境时明确说明未验证原因。
+* 不要求恢复原始图像分辨率。
+* README包含可复制运行命令。
+* 最终报告诚实区分“代码路径检查通过”和“真实模型运行通过”。
+
+请直接检查代码、完成修改、运行能够运行的测试，不要只给修改建议。

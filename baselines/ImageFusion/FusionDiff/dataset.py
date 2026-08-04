@@ -2,6 +2,22 @@ import os
 from torch.utils.data import Dataset
 from torchvision import transforms
 import cv2
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from metadata_training import MetadataFusionDataset
+
+
+class MetadataMFI_Dataset(MetadataFusionDataset):
+    """FusionDiff adapter; preserves the original RGB, [-1, 1] contract."""
+    def __init__(self, metadata, phase, resize, imgSzie, seed=0,
+                 start_index=0, max_samples=-1, size_policy="error"):
+        mode = "train" if phase == "train" else "val"
+        super().__init__(metadata, mode, size=imgSzie if resize else None,
+                         channels=3, value_range="minus_one_one",
+                         size_policy=size_policy, seed=seed,
+                         start_index=start_index, max_samples=max_samples)
 
 
 class MFI_Dataset(Dataset):

@@ -2,18 +2,23 @@ import time
 import torch
 from tqdm import tqdm
 import json
+import argparse
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 
-from my_dataset import MFI_Dataset
+from my_dataset import MFI_Dataset, MetadataMFI_Dataset
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from metadata_training import warn_split_overlap
 from Diffusion import GaussianDiffusion
 from Condition_Noise_Predictor.Rot_E_UNet import NoisePred
 from utils import tensorboard_writer, logger, save_model
 
-device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
-def train(config_path):
+def train(config_path, args=None):
     timestr = time.strftime('%Y%m%d_%H%M%S')
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
@@ -27,11 +32,27 @@ def train(config_path):
     train_imgSize = config["dataset"]["train"]["imgSize"]
     train_shuffle = config["dataset"]["train"]["shuffle"]
     train_drop_last = config["dataset"]["train"]["drop_last"]
-    train_dataset = MFI_Dataset(train_datasePath, phase=train_phase, use_dataTransform=train_use_dataTransform,
-                                resize=train_resize, imgSzie=train_imgSize)
+    if args and args.dataset_format == "metadata":
+        if not args.train_metadata or not args.val_metadata:
+            raise ValueError("metadata mode requires --train-metadata and --val-metadata")
+        train_dataset = MetadataMFI_Dataset(args.train_metadata, "train", train_resize, train_imgSize,
+                                            args.seed, args.start_index, args.max_samples)
+        val_dataset = MetadataMFI_Dataset(args.val_metadata, "valid", train_resize, train_imgSize,
+                                          args.seed, 0, args.max_samples)
+        warn_split_overlap(train_dataset, val_dataset)
+    else:
+        train_dataset = MFI_Dataset(train_datasePath, phase=train_phase, use_dataTransform=train_use_dataTransform,
+                                    resize=train_resize, imgSzie=train_imgSize)
+        val_dataset = None
     # You can modify the "num_workers" parameter for different GPU devices
+    effective_drop_last = train_drop_last and len(train_dataset) >= train_batch_size
+    if train_drop_last and not effective_drop_last:
+        print("WARNING: dataset is smaller than batch_size; disabling drop_last for smoke")
     train_dataloader = DataLoader(train_dataset, batch_size=train_batch_size, shuffle=train_shuffle,
-                                  drop_last=train_drop_last,pin_memory=True,num_workers=4)
+                                  drop_last=effective_drop_last,pin_memory=True,
+                                  num_workers=args.num_workers if args else 4)
+    val_dataloader = (DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=args.num_workers)
+                      if val_dataset is not None else None)
 
     # Condition Noise Predictor
     in_channels = config["Condition_Noise_Predictor"]["UNet"]["in_channels"]
@@ -62,6 +83,15 @@ def train(config_path):
     StepLR_size = config["optimizer"]["StepLR_size"]
     StepLR_gamma = config["optimizer"]["StepLR_gamma"]
     optimizer = torch.optim.AdamW(model.parameters(), lr=init_lr)
+    if args and args.resume:
+        resume_path = Path(args.resume).resolve()
+        if not resume_path.is_file():
+            raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
+        checkpoint = torch.load(resume_path, map_location=device)
+        model.load_state_dict(checkpoint.get("model", checkpoint))
+        if isinstance(checkpoint, dict) and "optimizer" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer"])
+        print(f"resumed checkpoint: {resume_path}")
     if use_lr_scheduler:
         learningRate_scheduler = lr_scheduler.StepLR(optimizer, step_size=StepLR_size, gamma=StepLR_gamma)
 
@@ -100,11 +130,13 @@ def train(config_path):
 
         for train_step, train_images in tqdm(enumerate(train_dataloader), desc="train step"):
             optimizer.zero_grad()
-            train_sourceImg1 = train_images[0].to(device)
-            train_sourceImg2 = train_images[1].to(device)
-            clearImg = train_images[2].to(device)
+            if isinstance(train_images, dict):
+                train_sourceImg1, train_sourceImg2 = train_images["a"].to(device), train_images["b"].to(device)
+                clearImg = train_images["target"].to(device)
+            else:
+                train_sourceImg1, train_sourceImg2, clearImg = [image.to(device) for image in train_images[:3]]
 
-            t = torch.randint(0, T, (train_batch_size,), device=device).long()
+            t = torch.randint(0, T, (clearImg.shape[0],), device=device).long()
             scale_loss = diffusion.train_losses(model, train_sourceImg1, train_sourceImg2, clearImg, t, concat_type, loss_scale)
             writer.add_scalar('loss_step: ', scale_loss, num_train_step)
 
@@ -132,6 +164,23 @@ def train(config_path):
 
             loss_sum += scale_loss
             num_train_step += 1
+            if args and args.max_train_steps >= 0 and num_train_step >= args.max_train_steps:
+                break
+
+        if val_dataloader is not None:
+            model.eval()
+            torch.manual_seed(args.seed)
+            with torch.no_grad():
+                for val_images in val_dataloader:
+                    va, vb, vg = (val_images[k].to(device) for k in ("a", "b", "target"))
+                    vt = torch.zeros((vg.shape[0],), dtype=torch.long, device=device)
+                    val_loss = diffusion.train_losses(model, va, vb, vg, vt, concat_type, loss_scale)
+                    print(f"validation loss: {val_loss.item() / loss_scale:.6f}")
+                    break
+        if args and args.max_train_steps >= 0 and num_train_step >= args.max_train_steps:
+            writer.close()
+            print("training smoke limit reached")
+            return
 
         aver_loss = loss_sum / train_step_sum
 
@@ -152,5 +201,17 @@ def train(config_path):
 
 
 if __name__ == '__main__':
-    config_path = "config.json"
-    train(config_path)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="config.json")
+    parser.add_argument("--dataset-format", choices=["directory", "metadata"], default="directory")
+    parser.add_argument("--train-metadata")
+    parser.add_argument("--val-metadata")
+    parser.add_argument("--start-index", type=int, default=0)
+    parser.add_argument("--max-samples", type=int, default=-1)
+    parser.add_argument("--num-workers", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--max-train-steps", type=int, default=-1)
+    parser.add_argument("--resume")
+    parsed = parser.parse_args()
+    torch.manual_seed(parsed.seed)
+    train(parsed.config, parsed)

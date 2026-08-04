@@ -43,6 +43,14 @@ python IFCNN_Main.py
 jupyter notebook IFCNN_Notebook.ipynb
 ```
 
+### Metadata inference
+
+本镜像未包含官方完整训练入口，因此不虚构 metadata 训练协议。推理必须加载真实官方 checkpoint，缺失或加载不匹配会明确失败：
+
+```cmd
+python infer_metadata.py --metadata ..\smoke_metadata\metadata.json --output-dir ..\..\outputs\IFCNN --checkpoint Code\snapshots\IFCNN-MAX.pth --device cpu --max-samples 2
+```
+
 
 
 ### Typos
