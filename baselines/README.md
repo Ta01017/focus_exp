@@ -52,3 +52,23 @@ IFCNN 源码中没有完整官方训练入口，因此没有编造监督训练�
 Periodic full diffusion sampling validation is not implemented. Use `validation-mode=loss` during training and run the standalone metadata inference script for image-quality evaluation. 正式扩散推理固定 `T=2000`，不能通过修改 `T` 冒充少步采样。
 
 ReDiffuse 必须在独立 CPython 3.8 环境先运行 `python3.8 baselines/ReDiffuse/prepare_official_bytecode.py`。保留的作者字节码为 `Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc`，SHA256 `62fb37e52d4c4638daed9e6b5e4bf7d5cc3f337811159b17b9246ff8d67d5fa1`；运行时副本 `Condition_Noise_Predictor/B_Conv.pyc` 不提交。
+
+## Final one-command examples
+
+```bash
+# SwinFusion metadata-Y training
+ROOT=/path/to/focus_exp METHOD=swinfusion TRAIN_META=/path/train.json VAL_META=/path/val.json OUTPUT_ROOT=/path/train_outputs TAG=swinfusion_metadata_y_v1 GPUS=0 INIT_MODE=scratch VALIDATION_MODE=loss bash run_train_metadata_v3.sh
+
+# SwinFusion official-Y inference
+ROOT=/path/to/focus_exp METHOD=swinfusion METADATA=/path/test.json OUTPUT_ROOT=/path/outputs SWINFUSION_CHECKPOINT_MODE=official-y SWINFUSION_CKPT=/path/10000_E.pth CUDA_VISIBLE_GPU=0 SEED=17 bash run_infer_metadata_v3.sh
+
+# FusionDiff train / resume / inference
+ROOT=/path/to/focus_exp METHOD=fusiondiff TRAIN_META=/path/train.json VAL_META=/path/val.json OUTPUT_ROOT=/path/train_outputs TAG=fusiondiff_metadata_rgb_v1 GPUS=0 VALIDATION_MODE=loss bash run_train_metadata_v3.sh
+ROOT=/path/to/focus_exp METHOD=fusiondiff TRAIN_META=/path/train.json VAL_META=/path/val.json OUTPUT_ROOT=/path/train_outputs TAG=fusiondiff_metadata_rgb_v1 GPUS=0 RESUME=/path/latest.pt VALIDATION_MODE=loss bash run_train_metadata_v3.sh
+ROOT=/path/to/focus_exp METHOD=fusiondiff METADATA=/path/test.json OUTPUT_ROOT=/path/outputs FUSIONDIFF_CKPT=/path/best_val_loss.pt CUDA_VISIBLE_GPU=0 SEED=17 SAMPLING_STEPS=2000 bash run_infer_metadata_v3.sh
+
+# ReDiffuse metadata-RGB training and the two inference modes
+ROOT=/path/to/focus_exp METHOD=rediffuse TRAIN_META=/path/train.json VAL_META=/path/val.json OUTPUT_ROOT=/path/train_outputs TAG=rediffuse_metadata_rgb_v1 GPUS=0 REDIFFUSE_PYTHON=/path/rediffuse38/bin/python REDIFFUSE_MODEL_MODE=metadata-rgb VALIDATION_MODE=loss bash run_train_metadata_v3.sh
+ROOT=/path/to/focus_exp METHOD=rediffuse METADATA=/path/test.json OUTPUT_ROOT=/path/outputs REDIFFUSE_PYTHON=/path/rediffuse38/bin/python REDIFFUSE_CHECKPOINT_MODE=official-y REDIFFUSE_CKPT=/path/ReDiffuse/weights/model.pt CUDA_VISIBLE_GPU=0 SEED=17 SAMPLING_STEPS=2000 bash run_infer_metadata_v3.sh
+ROOT=/path/to/focus_exp METHOD=rediffuse METADATA=/path/test.json OUTPUT_ROOT=/path/outputs REDIFFUSE_PYTHON=/path/rediffuse38/bin/python REDIFFUSE_CHECKPOINT_MODE=metadata-rgb REDIFFUSE_CKPT=/path/best_val_loss.pt CUDA_VISIBLE_GPU=0 SEED=17 SAMPLING_STEPS=2000 bash run_infer_metadata_v3.sh
+```

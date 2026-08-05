@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import json
 import os
 import random
@@ -20,8 +21,14 @@ from diffusion_checkpoint import (load_model_init, resume_training, rgb_contract
                                   save_checkpoint)
 from metadata_training import normalized_tensor_to_rgb, pil_rgb_to_tensor
 from training_run import configure_training_run
-from utils.utils_option import parse
 from data.dataset_metadata import DatasetMetadataMFF
+from ReDiffuse.chroma import fuse_chroma
+
+_option_spec = importlib.util.spec_from_file_location(
+    "swinfusion_utils_option", ROOT / "SwinFusion" / "utils" / "utils_option.py")
+_option_module = importlib.util.module_from_spec(_option_spec)
+_option_spec.loader.exec_module(_option_module)
+parse = _option_module.parse
 
 
 @pytest.mark.parametrize("rgb", [(255, 0, 0), (0, 0, 255)])
@@ -169,3 +176,14 @@ def test_official_b_conv_is_preserved_and_wrong_python_is_clear():
                                 text=True, capture_output=True)
         assert result.returncode != 0
         assert "requires CPython 3.8" in result.stderr
+
+
+def test_rediffuse_official_chroma_uses_both_inputs():
+    a = np.array([[128, 200]], dtype=np.uint8)
+    b = np.array([[20, 128]], dtype=np.uint8)
+    result = fuse_chroma(a, b)
+    expected = (a.astype(np.float32) * np.abs(a - 128.0)
+                + b.astype(np.float32) * np.abs(b - 128.0)) / (
+                    np.abs(a - 128.0) + np.abs(b - 128.0) + 1e-8)
+    assert np.allclose(result, expected)
+    assert result[0, 0] == pytest.approx(20.0)

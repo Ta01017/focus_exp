@@ -17,7 +17,7 @@ from diffusion_checkpoint import (rgb_contract, load_model_init, resume_training
                                   save_checkpoint, preserve_rng_state)
 from Diffusion import GaussianDiffusion
 from Condition_Noise_Predictor.UNet import NoisePred
-from utils import tensorboard_writer, logger, save_model
+from utils import tensorboard_writer, logger
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -122,7 +122,6 @@ def train(config_path, args=None):
     epochs = config["hyperParameter"]["epochs"]
     start_epoch = config["hyperParameter"]["start_epoch"]
     loss_step = config["hyperParameter"]["loss_step"]
-    save_model_epoch_step = config["hyperParameter"]["save_model_epoch_step"]
     train_step_sum = len(train_dataloader)
     num_train_step = 0
     if args and args.init_checkpoint:
@@ -139,7 +138,7 @@ def train(config_path, args=None):
     for epoch in range(start_epoch, epochs):
         # train
         model.train()
-        loss_sum = 0.0
+        loss_sum = 0.0; executed_steps = 0
         writer.add_scalar('lr_epoch: ', optimizer.state_dict()['param_groups'][0]['lr'], epoch)
 
         for train_step, train_images in tqdm(enumerate(train_dataloader), desc="train step"):
@@ -177,6 +176,7 @@ def train(config_path, args=None):
             optimizer.step()
 
             loss_sum += float(scale_loss.detach().item())
+            executed_steps += 1
             num_train_step += 1
             if args and args.max_train_steps >= 0 and num_train_step >= args.max_train_steps:
                 break
@@ -211,12 +211,7 @@ def train(config_path, args=None):
             print("training smoke limit reached")
             return
 
-        aver_loss = loss_sum / train_step_sum
-
-        if epoch % save_model_epoch_step == 0:
-            save_model(model, epoch, timestr)
-        if epoch == epochs - 1:
-            save_model(model, epoch, timestr)
+        aver_loss = loss_sum / max(executed_steps, 1)
 
         writer.add_scalar('aver_loss_epoch: ', aver_loss, epoch)
         log.write("\n")
@@ -243,6 +238,8 @@ if __name__ == '__main__':
     parser.add_argument("--validation-mode", choices=("smoke", "loss"), default="loss")
     parser.add_argument("--fail-on-split-overlap", type=int, choices=(0, 1), default=0)
     parsed = parser.parse_args()
+    if parsed.init_checkpoint and parsed.resume:
+        parser.error("--init-checkpoint and --resume cannot be used together")
     torch.manual_seed(parsed.seed)
     random.seed(parsed.seed)
     np.random.seed(parsed.seed)

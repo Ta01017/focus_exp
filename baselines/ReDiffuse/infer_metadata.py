@@ -2,6 +2,7 @@
 import argparse, json, sys, time
 from pathlib import Path
 import numpy as np
+import cv2
 import torch
 import torch.nn.functional as F
 from PIL import Image
@@ -13,6 +14,7 @@ from diffusion_sampling import validated_sampling_steps
 from diffusion_checkpoint import load_model_init
 from metadata_training import pil_rgb_to_tensor, normalized_tensor_to_rgb
 from runtime_check import require_official_b_conv
+from chroma import fuse_chroma
 
 
 def main():
@@ -67,11 +69,14 @@ def main():
             sample=prepare_item(item,index,meta,args.size_policy); rec['original_width'],rec['original_height']=sample['original_size']
             if target.exists() and not args.overwrite: rec.update(success=True,error='skipped_existing'); records.append(rec); continue
             if args.checkpoint_mode == 'official-y':
-                a_y,a_cb,a_cr=sample['a'].convert('YCbCr').split(); b_y=sample['b'].convert('YCbCr').split()[0]
-                def y_tensor(image):
-                    value=np.asarray(image,dtype=np.float32)[None,None]/127.5-1
+                a_rgb=np.asarray(sample['a'],dtype=np.uint8); b_rgb=np.asarray(sample['b'],dtype=np.uint8)
+                a_ycrcb=cv2.cvtColor(a_rgb,cv2.COLOR_RGB2YCrCb); b_ycrcb=cv2.cvtColor(b_rgb,cv2.COLOR_RGB2YCrCb)
+                fused_cr=fuse_chroma(a_ycrcb[:,:,1],b_ycrcb[:,:,1])
+                fused_cb=fuse_chroma(a_ycrcb[:,:,2],b_ycrcb[:,:,2])
+                def y_tensor(channel):
+                    value=channel.astype(np.float32)[None,None]/127.5-1
                     return torch.from_numpy(value.copy()).to(device)
-                a,b=y_tensor(a_y),y_tensor(b_y)
+                a,b=y_tensor(a_ycrcb[:,:,0]),y_tensor(b_ycrcb[:,:,0])
             else:
                 a,b=(pil_rgb_to_tensor(sample[k]).unsqueeze(0).to(device) for k in ('a','b'))
             h,w=a.shape[-2:]; ph,pw=(-h)%8,(-w)%8
@@ -82,8 +87,8 @@ def main():
             with torch.inference_mode(): pred=diffusion.p_sample_loop(model,a,b,c['concat_type'],config['diffusion_model']['add_noise'],[1,1,0,1])[0,:,:h,:w]
             if args.checkpoint_mode == 'official-y':
                 pred_array=((pred[0].clamp(-1,1).cpu().numpy()+1)*127.5).round().astype(np.uint8)
-                pred_y=Image.fromarray(pred_array,'L')
-                image=Image.merge('YCbCr',(pred_y,a_cb,a_cr)).convert('RGB')
+                output_ycrcb=np.stack((pred_array,fused_cr,fused_cb),axis=2).clip(0,255).astype(np.uint8)
+                image=Image.fromarray(cv2.cvtColor(output_ycrcb,cv2.COLOR_YCrCb2RGB),'RGB')
             else:
                 image=normalized_tensor_to_rgb(pred)
             restore_a_size(image,sample).save(target,'PNG')
