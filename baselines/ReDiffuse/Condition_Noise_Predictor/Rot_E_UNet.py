@@ -15,8 +15,6 @@ import time
 import json
 
 from .__init__ import time_embedding
-from .__init__ import Upsample
-from .__init__ import Downsample
 from .__init__ import EquivariantDownsample
 from .__init__ import EquivariantUpsample
 

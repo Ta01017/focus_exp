@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import random
 import subprocess
 import sys
 from argparse import Namespace
@@ -42,7 +43,7 @@ def test_full_checkpoint_resume_and_contract_rejection(tmp_path):
     loss = model(torch.ones(1, 2)).sum(); loss.backward(); optimizer.step(); scheduler.step()
     path = tmp_path / "full.pt"
     save_checkpoint(path, method="FusionDiff", model=model, optimizer=optimizer,
-                    scheduler=scheduler, epoch=4, global_step=17, config={"T": 2000},
+                    scheduler=scheduler, epoch=4, global_step=17, best_val_loss=0.125, config={"T": 2000},
                     contract=rgb_contract("FusionDiff", 2000))
     restored = torch.nn.Linear(2, 1)
     restored_optimizer = torch.optim.AdamW(restored.parameters(), lr=0.5)
@@ -50,6 +51,7 @@ def test_full_checkpoint_resume_and_contract_rejection(tmp_path):
     epoch, step, checkpoint = resume_training(
         path, restored, restored_optimizer, restored_scheduler, "FusionDiff")
     assert (epoch, step) == (5, 17)
+    assert checkpoint["format_version"] == 3 and checkpoint["best_val_loss"] == 0.125
     assert checkpoint["optimizer"]["state"]
     assert all(torch.equal(a, b) for a, b in zip(model.state_dict().values(), restored.state_dict().values()))
 
@@ -61,6 +63,34 @@ def test_full_checkpoint_resume_and_contract_rejection(tmp_path):
     legacy = tmp_path / "legacy.pt"; torch.save(model.state_dict(), legacy)
     with pytest.raises(ValueError, match="legacy"):
         load_model_init(legacy, restored, "FusionDiff")
+
+
+@pytest.mark.parametrize("method", ["FusionDiff", "ReDiffuse"])
+def test_resume_matches_continuous_optimizer_scheduler_rng(tmp_path, method):
+    random.seed(5); np.random.seed(5); torch.manual_seed(5)
+    model = torch.nn.Linear(2, 1); optimizer = torch.optim.AdamW(model.parameters(), lr=.02)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1, gamma=.5)
+    def step(m, o):
+        o.zero_grad(); loss=m(torch.rand(1, 2)).square().mean(); loss.backward(); o.step()
+    step(model, optimizer); scheduler.step()
+    checkpoint = tmp_path / "resume.pt"
+    contract = (rgb_contract("ReDiffuse", model_mode="metadata-rgb", in_channels=9, out_channels=3)
+                if method == "ReDiffuse" else rgb_contract("FusionDiff"))
+    save_checkpoint(checkpoint, method=method, model=model, optimizer=optimizer,
+                    scheduler=scheduler, epoch=0, global_step=1, best_val_loss=.4, config={},
+                    contract=contract)
+    step(model, optimizer)
+    continuous = {k: v.clone() for k, v in model.state_dict().items()}
+    continuous_random = (random.random(), float(np.random.rand()), torch.rand(()).item())
+
+    resumed = torch.nn.Linear(2, 1); ro = torch.optim.AdamW(resumed.parameters(), lr=.9)
+    rs = torch.optim.lr_scheduler.StepLR(ro, 1, gamma=.5)
+    epoch, global_step, state = resume_training(checkpoint, resumed, ro, rs, method)
+    assert (epoch, global_step, state["best_val_loss"]) == (1, 1, .4)
+    assert rs.last_epoch == scheduler.last_epoch and ro.param_groups[0]["lr"] == scheduler.get_last_lr()[0]
+    step(resumed, ro)
+    assert all(torch.allclose(continuous[k], resumed.state_dict()[k]) for k in continuous)
+    assert (random.random(), float(np.random.rand()), torch.rand(()).item()) == continuous_random
 
 
 def _minimal_swin_option(tmp_path):

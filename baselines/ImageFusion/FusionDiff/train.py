@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from metadata_training import warn_split_overlap
 from diffusion_checkpoint import (rgb_contract, load_model_init, resume_training,
-                                  save_checkpoint)
+                                  save_checkpoint, preserve_rng_state)
 from Diffusion import GaussianDiffusion
 from Condition_Noise_Predictor.UNet import NoisePred
 from utils import tensorboard_writer, logger, save_model
@@ -128,11 +128,13 @@ def train(config_path, args=None):
     if args and args.init_checkpoint:
         load_model_init(args.init_checkpoint, model, "FusionDiff", bool(args.allow_legacy_checkpoint), device)
         print(f"initialized model only: {Path(args.init_checkpoint).resolve()}")
-    if args and args.resume:
-        start_epoch, num_train_step, _ = resume_training(
-            args.resume, model, optimizer, learningRate_scheduler, "FusionDiff", device)
-        print(f"fully resumed: {Path(args.resume).resolve()} epoch={start_epoch} step={num_train_step}")
     best_val_loss = float("inf")
+    if args and args.resume:
+        start_epoch, num_train_step, resumed = resume_training(
+            args.resume, model, optimizer, learningRate_scheduler, "FusionDiff", device)
+        best_val_loss = float(resumed["best_val_loss"])
+        print(f"fully resumed: {Path(args.resume).resolve()} epoch={start_epoch} step={num_train_step}")
+        print(f"[RESUME] best_val_loss={best_val_loss}")
 
     for epoch in range(start_epoch, epochs):
         # train
@@ -181,29 +183,28 @@ def train(config_path, args=None):
 
         val_average = None
         if val_dataloader is not None:
-            model.eval()
-            torch.manual_seed(args.seed)
-            val_sum, val_count = 0.0, 0
-            with torch.no_grad():
+            model.eval(); val_sum, val_count = 0.0, 0
+            with preserve_rng_state(args.seed), torch.no_grad():
                 for val_images in val_dataloader:
                     va, vb, vg = (val_images[k].to(device) for k in ("a", "b", "target"))
                     vt = (torch.zeros((vg.shape[0],), dtype=torch.long, device=device)
-                          if args.validation_mode == "smoke" else
-                          torch.randint(0, T, (vg.shape[0],), device=device))
+                          if args.validation_mode == "smoke" else torch.randint(0, T, (vg.shape[0],), device=device))
                     val_loss = diffusion.train_losses(model, va, vb, vg, vt, concat_type, loss_scale)
-                    val_loss_value = float(val_loss.detach().item())
-                    val_sum += val_loss_value; val_count += 1
+                    val_sum += float(val_loss.detach().item()); val_count += 1
                     if args.validation_mode == "smoke": break
             if val_count:
                 val_average = val_sum / val_count
                 print(f"validation loss: {val_average / loss_scale:.6f} samples={val_count}")
+        improved = args.validation_mode != "smoke" and val_average is not None and val_average < best_val_loss
+        if improved: best_val_loss = val_average
+        if learningRate_scheduler is not None: learningRate_scheduler.step()
         checkpoint_args = dict(method="FusionDiff", model=model, optimizer=optimizer,
                                scheduler=learningRate_scheduler, epoch=epoch,
-                               global_step=num_train_step, config=config, contract=contract)
+                               global_step=num_train_step, best_val_loss=best_val_loss,
+                               config=config, contract=contract)
         save_checkpoint("checkpoints/latest.pt", **checkpoint_args)
         save_checkpoint(f"checkpoints/epoch_{epoch:04d}.pt", **checkpoint_args)
-        if args.validation_mode != "smoke" and val_average is not None and val_average < best_val_loss:
-            best_val_loss = val_average
+        if improved:
             save_checkpoint("checkpoints/best_val_loss.pt", **checkpoint_args)
         if args and args.max_train_steps >= 0 and num_train_step >= args.max_train_steps:
             writer.close()
@@ -217,9 +218,6 @@ def train(config_path, args=None):
         if epoch == epochs - 1:
             save_model(model, epoch, timestr)
 
-        # update learning rate
-        if learningRate_scheduler is not None:
-            learningRate_scheduler.step()
         writer.add_scalar('aver_loss_epoch: ', aver_loss, epoch)
         log.write("\n")
 

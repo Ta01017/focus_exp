@@ -1,10 +1,34 @@
 from __future__ import annotations
 
 import random
+from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
 import torch
+
+
+@contextmanager
+def preserve_rng_state(seed=None):
+    """Run deterministic validation without changing any training RNG stream."""
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.get_rng_state()
+    cuda_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    try:
+        if seed is not None:
+            random.seed(seed)
+            np.random.seed(seed)
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(seed)
+        yield
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+        torch.set_rng_state(torch_state)
+        if cuda_state is not None:
+            torch.cuda.set_rng_state_all(cuda_state)
 
 
 def rgb_contract(method, steps=2000, **extra):
@@ -21,13 +45,20 @@ def assert_rgb_contract(contract, method=None):
         raise ValueError(f"checkpoint data contract is not metadata RGB: {contract}")
     if method and contract.get("method") != method:
         raise ValueError(f"checkpoint method mismatch: expected {method}, got {contract.get('method')}")
+    if method == "ReDiffuse":
+        expected = {"model_mode": "metadata-rgb", "in_channels": 9, "out_channels": 3}
+        if any(contract.get(key) != value for key, value in expected.items()):
+            raise ValueError(f"ReDiffuse checkpoint is not metadata-rgb 9→3: {contract}")
 
 
-def build_checkpoint(method, model, optimizer, scheduler, epoch, global_step, config, contract):
-    return {"format_version": 2, "method": method, "model": model.state_dict(),
+def build_checkpoint(method, model, optimizer, scheduler, epoch, global_step, config, contract,
+                     best_val_loss=float("inf")):
+    """Complete state after training, validation, best update, and scheduler step."""
+    return {"format_version": 3, "method": method, "model": model.state_dict(),
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict() if scheduler is not None else None,
-            "epoch": int(epoch), "global_step": int(global_step), "config": config,
+            "epoch": int(epoch), "global_step": int(global_step),
+            "best_val_loss": float(best_val_loss), "config": config,
             "data_contract": contract,
             "random_state": {"python": random.getstate(), "numpy": np.random.get_state(),
                              "torch": torch.get_rng_state(),
@@ -72,4 +103,7 @@ def resume_training(path, model, optimizer, scheduler, method, map_location="cpu
     torch.set_rng_state(state["torch"])
     if torch.cuda.is_available() and state.get("cuda") is not None:
         torch.cuda.set_rng_state_all(state["cuda"])
+    if "best_val_loss" not in checkpoint:
+        print("[WARN] Legacy checkpoint has no best_val_loss; using infinity.")
+        checkpoint["best_val_loss"] = float("inf")
     return int(checkpoint["epoch"]) + 1, int(checkpoint["global_step"]), checkpoint

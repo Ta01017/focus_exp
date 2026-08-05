@@ -1,5 +1,31 @@
 # Metadata training audit report
 
+> Current status: ReDiffuse checkpoint/RNG/resume correction based on `b68023e`. Older status sections below are historical and superseded.
+
+## ReDiffuse dual-mode and diffusion training state
+
+| Mode | Structure | Checkpoint | Python | Status |
+| --- | --- | --- | --- | --- |
+| ReDiffuse official-y | 3→1 | official `weights/model.pt` | CPython 3.8.10 | B_Conv import、strict load、32×32 forward PASS；2000-step metadata inference 未执行 |
+| ReDiffuse metadata-rgb | 9→3 | self-trained RGB full checkpoint | CPython 3.8.10 | 32×32 forward + optimizer PASS；checkpoint/resume公共连续性 PASS；完整 inference 未执行 |
+
+实际建立 `/tmp/mamba-root/envs/rediffuse38`（Python 3.8.10），并执行 `pip install -r baselines/ReDiffuse/requirements-py38.txt`：全部依赖安装成功。测试环境安装官方 `torch==2.4.1+cpu`；生产 CUDA 环境应选择与服务器 CUDA 匹配的官方 wheel。
+
+```text
+Python: 3.8.10
+B_Conv source: baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
+SHA256: 62fb37e52d4c4638daed9e6b5e4bf7d5cc3f337811159b17b9246ff8d67d5fa1
+pyc magic: 550d0d0a
+imported: baselines/ReDiffuse/Condition_Noise_Predictor/B_Conv.pyc
+official checkpoint missing_keys=[] unexpected_keys=[]
+official-y forward: PASS (1,1,32,32)
+metadata-rgb forward/optimizer: PASS (1,3,32,32)
+```
+
+FusionDiff 和 ReDiffuse 验证均通过 `preserve_rng_state(seed)` 隔离 Python、NumPy、Torch 和 CUDA RNG。checkpoint format v3 表示 epoch 训练、验证、best metric 更新、scheduler step 均完成后的状态，包含 `best_val_loss`。RNG 与最小中断/连续训练回归覆盖两个方法，完整相关测试共 29 项 PASS，检查下一随机数、参数、optimizer、scheduler `last_epoch`、learning rate、global_step 与 best loss。
+
+未执行两种 ReDiffuse 模式的完整 2000 步 metadata sampling；CPU 上耗时过高，不能用修改 T 的伪少步结果代替。因此“metadata inference”仍标为未验证，不从 forward PASS 推断 sampling PASS。
+
 > Current status: v4。下方 v2/v3 内容仅为历史记录；如有冲突，以本节为准。
 
 ## v4 当前结论（2026-08-05）

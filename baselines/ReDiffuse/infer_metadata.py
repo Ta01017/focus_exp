@@ -21,6 +21,7 @@ def main():
     p.add_argument('--overwrite',type=bool01,default=False); p.add_argument('--save-inputs',type=bool01,default=False); p.add_argument('--size-policy',choices=('error','resize_b_to_a','center_crop_common'),default='error')
     p.add_argument('--sampling-steps',type=int); p.add_argument('--seed',type=int,default=0)
     p.add_argument('--allow-legacy-checkpoint',type=int,choices=(0,1),default=0)
+    p.add_argument('--checkpoint-mode', choices=('official-y', 'metadata-rgb'), default='official-y')
     p.add_argument('--config',default=str(ROOT/'config.json')); args=p.parse_args()
     require_official_b_conv()
     with open(args.config,encoding='utf-8') as f: config=json.load(f)
@@ -32,9 +33,31 @@ def main():
     from Condition_Noise_Predictor.Rot_E_UNet import NoisePred
     device=torch.device(args.device)
     if device.type=='cuda' and not torch.cuda.is_available(): raise RuntimeError('CUDA unavailable; pass --device cpu')
-    c=config['Condition_Noise_Predictor']; u=c['UNet']; u=dict(u,in_channels=9,out_channels=3)
+    print(f"[REDIFFUSE] checkpoint_mode={args.checkpoint_mode}")
+    print(f"[REDIFFUSE] checkpoint={ckpt}")
+    print(f"[REDIFFUSE] python={sys.executable}")
+    print(f"[REDIFFUSE] color_space={'Y' if args.checkpoint_mode == 'official-y' else 'RGB'}")
+    c=config['Condition_Noise_Predictor']; u=c['UNet']
+    u=dict(u, in_channels=3 if args.checkpoint_mode == 'official-y' else 9,
+           out_channels=1 if args.checkpoint_mode == 'official-y' else 3)
     model=NoisePred(u['in_channels'],u['out_channels'],u['model_channels'],u['num_res_blocks'],u['dropout'],u['time_embed_dim_mult'],u['down_sample_mult'])
-    load_model_init(ckpt,model,'ReDiffuse',bool(args.allow_legacy_checkpoint),device); model.to(device).eval()
+    raw=torch.load(ckpt,map_location=device,weights_only=False)
+    if args.checkpoint_mode == 'official-y':
+        if isinstance(raw,dict) and 'model' in raw:
+            raise ValueError('Checkpoint/model mismatch: metadata-rgb checkpoint cannot be loaded into official-y model.')
+        state=raw.get('state_dict',raw) if isinstance(raw,dict) else raw
+        try: model.load_state_dict(state,strict=True)
+        except RuntimeError as exc:
+            raise ValueError('Checkpoint/model mismatch: metadata-rgb checkpoint cannot be loaded into official-y model.') from exc
+    else:
+        if not isinstance(raw,dict) or 'model' not in raw:
+            raise ValueError('Checkpoint/model mismatch: official-y checkpoint cannot be loaded into metadata-rgb model.')
+        contract=raw.get('data_contract') or {}
+        expected={'dataset_format':'metadata','color_space':'RGB','model_mode':'metadata-rgb','in_channels':9,'out_channels':3}
+        if any(contract.get(k)!=v for k,v in expected.items()):
+            raise ValueError(f'Checkpoint/model mismatch: invalid metadata-rgb data contract: {contract}')
+        load_model_init(ckpt,model,'ReDiffuse',False,device)
+    model.to(device).eval()
     diffusion=GaussianDiffusion(trained_steps,config['diffusion_model']['beta_schedule_type']); meta,items=load_metadata(args.metadata,args.start_index,args.max_samples)
     out=Path(args.output_dir).resolve(); out.mkdir(parents=True,exist_ok=True); records=[]
     for index,item in items:
@@ -43,13 +66,27 @@ def main():
             target=Path(rec['prediction'])
             sample=prepare_item(item,index,meta,args.size_policy); rec['original_width'],rec['original_height']=sample['original_size']
             if target.exists() and not args.overwrite: rec.update(success=True,error='skipped_existing'); records.append(rec); continue
-            a,b=(pil_rgb_to_tensor(sample[k]).unsqueeze(0).to(device) for k in ('a','b')); h,w=a.shape[-2:]; ph,pw=(-h)%8,(-w)%8
+            if args.checkpoint_mode == 'official-y':
+                a_y,a_cb,a_cr=sample['a'].convert('YCbCr').split(); b_y=sample['b'].convert('YCbCr').split()[0]
+                def y_tensor(image):
+                    value=np.asarray(image,dtype=np.float32)[None,None]/127.5-1
+                    return torch.from_numpy(value.copy()).to(device)
+                a,b=y_tensor(a_y),y_tensor(b_y)
+            else:
+                a,b=(pil_rgb_to_tensor(sample[k]).unsqueeze(0).to(device) for k in ('a','b'))
+            h,w=a.shape[-2:]; ph,pw=(-h)%8,(-w)%8
             if ph or pw:
                 mode='reflect' if h>ph and w>pw else 'replicate'; a=F.pad(a,(0,pw,0,ph),mode=mode); b=F.pad(b,(0,pw,0,ph),mode=mode)
             torch.manual_seed(args.seed+index)
             if device.type=='cuda': torch.cuda.manual_seed_all(args.seed+index)
             with torch.inference_mode(): pred=diffusion.p_sample_loop(model,a,b,c['concat_type'],config['diffusion_model']['add_noise'],[1,1,0,1])[0,:,:h,:w]
-            restore_a_size(normalized_tensor_to_rgb(pred),sample).save(target,'PNG')
+            if args.checkpoint_mode == 'official-y':
+                pred_array=((pred[0].clamp(-1,1).cpu().numpy()+1)*127.5).round().astype(np.uint8)
+                pred_y=Image.fromarray(pred_array,'L')
+                image=Image.merge('YCbCr',(pred_y,a_cb,a_cr)).convert('RGB')
+            else:
+                image=normalized_tensor_to_rgb(pred)
+            restore_a_size(image,sample).save(target,'PNG')
             if args.save_inputs: save_inputs(sample,out)
             rec['success']=True
         except Exception as exc: rec['error']=f'{type(exc).__name__}: {exc}'

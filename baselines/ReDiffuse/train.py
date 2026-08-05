@@ -15,7 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from metadata_training import warn_split_overlap
 from diffusion_checkpoint import (rgb_contract, load_model_init, resume_training,
-                                  save_checkpoint)
+                                  save_checkpoint, preserve_rng_state)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -29,7 +29,8 @@ def train(config_path, args=None):
     timestr = time.strftime('%Y%m%d_%H%M%S')
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
-    contract = rgb_contract("ReDiffuse", config["diffusion_model"]["T"],
+    contract = rgb_contract("ReDiffuse", config["diffusion_model"]["T"], model_mode="metadata-rgb",
+                            in_channels=9, out_channels=3,
                             b_conv_source="official CPython 3.8 bytecode")
     Path("data_contract.json").write_text(json.dumps(contract, indent=2), encoding="utf-8")
 
@@ -52,8 +53,9 @@ def train(config_path, args=None):
                                           val_cfg.get("imgSize", train_imgSize),
                                           args.seed, 0, args.max_samples)
         warn_split_overlap(train_dataset, val_dataset, args.fail_on_split_overlap)
-        print("[ReDiffuse] dataset_format=metadata\n[ReDiffuse] color_space=RGB\n"
-              "[ReDiffuse] input_order=A,B\n[ReDiffuse] target=image")
+        print("[REDIFFUSE TRAIN]\nmodel_mode=metadata-rgb\ndataset_format=metadata\ncolor_space=RGB\n"
+              "input_order=A,B\ntarget=image\nin_channels=9\nout_channels=3\n"
+              f"diffusion_steps={config['diffusion_model']['T']}")
     else:
         train_dataset = MFI_Dataset(train_datasePath, phase=train_phase, use_dataTransform=train_use_dataTransform,
                                     resize=train_resize, imgSzie=train_imgSize)
@@ -129,11 +131,16 @@ def train(config_path, args=None):
     train_step_sum = len(train_dataloader)
     num_train_step = 0
     if args and args.init_checkpoint:
+        candidate = torch.load(args.init_checkpoint, map_location="cpu", weights_only=False)
+        if not isinstance(candidate, dict) or "model" not in candidate:
+            raise ValueError("The official ReDiffuse model.pt is an official-y 3→1 model and cannot initialize the metadata-rgb 9→3 model.")
         load_model_init(args.init_checkpoint, model, "ReDiffuse", bool(args.allow_legacy_checkpoint), device)
-    if args and args.resume:
-        start_epoch, num_train_step, _ = resume_training(
-            args.resume, model, optimizer, learningRate_scheduler, "ReDiffuse", device)
     best_val_loss = float("inf")
+    if args and args.resume:
+        start_epoch, num_train_step, resumed = resume_training(
+            args.resume, model, optimizer, learningRate_scheduler, "ReDiffuse", device)
+        best_val_loss = float(resumed["best_val_loss"])
+        print(f"[RESUME] best_val_loss={best_val_loss}")
 
     for epoch in range(start_epoch, epochs):
         # train
@@ -182,10 +189,8 @@ def train(config_path, args=None):
 
         val_average = None
         if val_dataloader is not None:
-            model.eval()
-            torch.manual_seed(args.seed)
-            val_sum, val_count = 0.0, 0
-            with torch.no_grad():
+            model.eval(); val_sum, val_count = 0.0, 0
+            with preserve_rng_state(args.seed), torch.no_grad():
                 for val_images in val_dataloader:
                     va, vb, vg = (val_images[k].to(device) for k in ("a", "b", "target"))
                     vt = (torch.zeros((vg.shape[0],), dtype=torch.long, device=device)
@@ -197,13 +202,16 @@ def train(config_path, args=None):
             if val_count:
                 val_average = val_sum / val_count
                 print(f"validation loss: {val_average / loss_scale:.6f} samples={val_count}")
+        improved = args.validation_mode != "smoke" and val_average is not None and val_average < best_val_loss
+        if improved: best_val_loss = val_average
+        if learningRate_scheduler is not None: learningRate_scheduler.step()
         checkpoint_args = dict(method="ReDiffuse", model=model, optimizer=optimizer,
                                scheduler=learningRate_scheduler, epoch=epoch,
-                               global_step=num_train_step, config=config, contract=contract)
+                               global_step=num_train_step, best_val_loss=best_val_loss,
+                               config=config, contract=contract)
         save_checkpoint("checkpoints/latest.pt", **checkpoint_args)
         save_checkpoint(f"checkpoints/epoch_{epoch:04d}.pt", **checkpoint_args)
-        if args.validation_mode != "smoke" and val_average is not None and val_average < best_val_loss:
-            best_val_loss = val_average; save_checkpoint("checkpoints/best_val_loss.pt", **checkpoint_args)
+        if improved: save_checkpoint("checkpoints/best_val_loss.pt", **checkpoint_args)
         if args and args.max_train_steps >= 0 and num_train_step >= args.max_train_steps:
             writer.close()
             print("training smoke limit reached")
@@ -216,9 +224,6 @@ def train(config_path, args=None):
         if epoch == epochs - 1:
             save_model(model, epoch, timestr)
 
-        # update learning rate
-        if learningRate_scheduler is not None:
-            learningRate_scheduler.step()
         writer.add_scalar('aver_loss_epoch: ', aver_loss, epoch)
         log.write("\n")
 
@@ -231,6 +236,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.json")
     parser.add_argument("--dataset-format", choices=["directory", "metadata"], default="directory")
+    parser.add_argument("--model-mode", choices=("metadata-rgb",), default="metadata-rgb")
     parser.add_argument("--train-metadata")
     parser.add_argument("--val-metadata")
     parser.add_argument("--start-index", type=int, default=0)
