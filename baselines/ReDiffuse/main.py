@@ -8,7 +8,7 @@ import numpy as np
 from my_dataset import MFI_Dataset
 from Diffusion import GaussianDiffusion
 from Condition_Noise_Predictor.Rot_E_UNet import NoisePred
-device = "cuda:3" if torch.cuda.is_available() else "cpu"
+device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
 
 # Gets the filename without the extension

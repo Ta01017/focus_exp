@@ -8,9 +8,6 @@ import time
 import numpy as np
 from utils import tensor2img
 
-device = "cuda:3" if torch.cuda.is_available() else "cpu"
-
-
 def linear_beta_schedule(timesteps):
     scale = 1000 / timesteps
     beta_start = scale * 0.0001
@@ -76,7 +73,7 @@ class GaussianDiffusion:
     # Get the param of given timestep t
     def _extract(self, a, t, x_shape):
         batch_size = t.shape[0]
-        out = a.to(device).gather(0, t).float()
+        out = a.to(device=t.device, dtype=torch.float32).gather(0, t)
         out = out.reshape(batch_size, *((1,) * (len(x_shape) - 1)))
         return out
 
@@ -163,7 +160,7 @@ class GaussianDiffusion:
         log_step = 100
 
         # Start from pure noise (for each example in the batch)
-        imgs = torch.randn(sourceImg1.shape, device=device)
+        imgs = torch.randn_like(sourceImg1)
 
         # reverse process
         for i in reversed(range(0, self.timesteps)):
@@ -173,7 +170,7 @@ class GaussianDiffusion:
                       f"[generate step] {num + 1}/{generat_imgs_num}    "
                       f"[reverse process] {i}/{self.timesteps}    "
                       f"[time] {now_time}")
-            t = torch.full((sourceImg1.shape[0],), i, device=device, dtype=torch.long)
+            t = torch.full((sourceImg1.shape[0],), i, device=sourceImg1.device, dtype=torch.long)
             imgs = self.p_sample(model, sourceImg1, sourceImg2, imgs, t, concat_type, add_noise)
         return imgs
 

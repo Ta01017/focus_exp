@@ -9,8 +9,6 @@ from . import B_Conv as fn
 import torch.nn.functional as F
 tranNum = 4
 
-device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
-
 def time_embedding(timesteps, dim, max_period=10000):
     """
     Create sinusoidal timestep embeddings.

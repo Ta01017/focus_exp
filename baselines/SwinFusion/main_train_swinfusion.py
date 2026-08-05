@@ -66,11 +66,12 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
 
     args = parser.parse_args()
     opt = option.parse(args.opt, is_train=True)
-    if args.init_mode in ('scratch', 'resume'):
-        opt['n_channels'] = 3
-        opt['netG']['in_chans'] = 3
-        for dataset_opt in opt['datasets'].values():
-            dataset_opt['n_channels'] = 3
+    # The official MFF network and Sobel-based loss are single-channel.  RGB
+    # metadata is converted to luminance by the dedicated Dataset adapter.
+    opt['n_channels'] = 1
+    opt['netG']['in_chans'] = 1
+    for dataset_opt in opt['datasets'].values():
+        dataset_opt['n_channels'] = 1
     opt['dist'] = args.dist
     if bool(args.train_metadata) != bool(args.val_metadata):
         raise ValueError('--train-metadata and --val-metadata must be provided together')

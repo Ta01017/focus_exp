@@ -19,7 +19,7 @@ def main():
     p.add_argument("--checkpoint"); p.add_argument("--device", default="cuda:0"); p.add_argument("--start-index", type=int, default=0)
     p.add_argument("--max-samples", type=int, default=-1); p.add_argument("--overwrite", type=bool01, default=False)
     p.add_argument("--save-inputs", type=bool01, default=False); p.add_argument("--size-policy", choices=("error", "resize_b_to_a", "center_crop_common"), default="error")
-    p.add_argument("--checkpoint-mode", choices=("metadata-rgb", "official"), default="metadata-rgb")
+    p.add_argument("--checkpoint-mode", choices=("official-y", "metadata-y", "official"), default="official-y")
     args = p.parse_args(); out = Path(args.output_dir).resolve(); out.mkdir(parents=True, exist_ok=True)
     default = ROOT / "Model/Multi_Focus_Fusion/Multi_Focus_Fusion/models/10000_E.pth"
     ckpt = Path(args.checkpoint).expanduser().resolve() if args.checkpoint else default
@@ -27,15 +27,18 @@ def main():
     from models.network_swinfusion1 import SwinFusion
     device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available(): raise RuntimeError("CUDA unavailable; pass --device cpu")
-    in_chans = 3 if args.checkpoint_mode == "metadata-rgb" else 1
-    if args.checkpoint_mode == "metadata-rgb":
+    checkpoint_mode = "official-y" if args.checkpoint_mode == "official" else args.checkpoint_mode
+    in_chans = 1
+    if checkpoint_mode == "metadata-y":
         contract_path = ckpt.parent.parent / "data_contract.json"
-        if not contract_path.is_file(): raise ValueError(f"metadata RGB data contract missing: {contract_path}")
+        if not contract_path.is_file(): raise ValueError(f"metadata Y data contract missing: {contract_path}")
         import json
         contract = json.loads(contract_path.read_text(encoding="utf-8"))
-        if contract.get("color_space") != "RGB": raise ValueError(f"not a metadata RGB checkpoint: {contract}")
+        expected = {"dataset_format": "metadata", "source_color_space": "RGB", "model_color_space": "Y"}
+        if any(contract.get(k) != v for k, v in expected.items()):
+            raise ValueError(f"not a metadata Y checkpoint: {contract}")
     else:
-        print("[OFFICIAL CHECKPOINT] One-channel color contract is not labeled as metadata RGB.")
+        print("[OFFICIAL-Y] Loading the author's one-channel MFIF checkpoint.")
     model = SwinFusion(upscale=1, in_chans=in_chans, img_size=128, window_size=8, img_range=1., depths=[6]*4,
                        embed_dim=60, num_heads=[6]*4, mlp_ratio=2, upsampler=None, resi_connection="1conv")
     state = torch.load(str(ckpt), map_location=device); model.load_state_dict(state.get("params", state), strict=True); model.to(device).eval()
@@ -46,27 +49,22 @@ def main():
             target = Path(rec["prediction"])
             sample = prepare_item(item, index, meta, args.size_policy); rec["original_width"], rec["original_height"] = sample["original_size"]
             if target.exists() and not args.overwrite: rec.update(success=True, error="skipped_existing"); records.append(rec); continue
-            if args.checkpoint_mode == "metadata-rgb":
-                def tensor_rgb(im): return torch.from_numpy(np.asarray(im,dtype=np.float32).transpose(2,0,1)/255.).unsqueeze(0).to(device)
-                a,b=tensor_rgb(sample['a']),tensor_rgb(sample['b'])
-            else:
-                a_ycc=np.asarray(sample['a'].convert('YCbCr')); b_ycc=np.asarray(sample['b'].convert('YCbCr'))
-                def tensor_y(y): return torch.from_numpy(y.astype(np.float32)/255.).unsqueeze(0).unsqueeze(0).to(device)
-                a,b=tensor_y(a_ycc[:,:,0]),tensor_y(b_ycc[:,:,0])
+            a_ycc=np.asarray(sample['a'].convert('YCbCr')); b_ycc=np.asarray(sample['b'].convert('YCbCr'))
+            def tensor_y(y): return torch.from_numpy(y.astype(np.float32)/255.).unsqueeze(0).unsqueeze(0).to(device)
+            a,b=tensor_y(a_ycc[:,:,0]),tensor_y(b_ycc[:,:,0])
             h, w = a.shape[-2:]; ph, pw = (-h) % 8, (-w) % 8
             if ph or pw:
                 mode = "reflect" if h > ph and w > pw else "replicate"; a = F.pad(a, (0, pw, 0, ph), mode=mode); b = F.pad(b, (0, pw, 0, ph), mode=mode)
             with torch.inference_mode(): pred = model(a, b)[0, :, :h, :w].clamp(0, 1).cpu().numpy()
-            if args.checkpoint_mode == 'metadata-rgb':
-                image=Image.fromarray(np.uint8(np.rint(pred.transpose(1,2,0)*255)),'RGB')
-            else:
-                fused_y=np.uint8(np.rint(pred[0]*255)); image=Image.fromarray(np.dstack((fused_y,a_ycc[:,:,1:])), 'YCbCr').convert('RGB')
+            fused_y=np.uint8(np.rint(pred[0]*255))
+            image=Image.fromarray(np.dstack((fused_y, a_ycc[:, :, 1], a_ycc[:, :, 2])), 'YCbCr').convert('RGB')
             restore_a_size(image, sample).save(target, "PNG")
             if args.save_inputs: save_inputs(sample, out)
             rec["success"] = True
         except Exception as exc: rec["error"] = f"{type(exc).__name__}: {exc}"
         rec["runtime_seconds"] = round(time.perf_counter() - started, 6); records.append(rec)
-    write_run_files(out, records, vars(args) | {"metadata": str(meta), "checkpoint_loaded": str(ckpt), "model_config": "official_multi_focus"})
+    write_run_files(out, records, vars(args) | {"metadata": str(meta), "checkpoint_loaded": str(ckpt),
+                    "checkpoint_mode_resolved": checkpoint_mode, "model_config": "single_channel_multi_focus"})
     if not any(r["success"] for r in records): raise SystemExit(2)
 
 

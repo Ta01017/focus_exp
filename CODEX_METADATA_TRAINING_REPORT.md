@@ -1,5 +1,26 @@
 # Metadata training audit report
 
+> Current status: v4。下方 v2/v3 内容仅为历史记录；如有冲突，以本节为准。
+
+## v4 当前结论（2026-08-05）
+
+| Method | Internal color | Metadata train | Metadata infer | Forward | Optimizer | Resume | Sampling | Ready | Blocker |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| DSIFT | Original MATLAB | N/A | 已接入 | N/A | N/A | N/A | 未验证 | 否 | MATLAB 不可用 |
+| IFCNN | Official | 无官方训练循环 | 已接入 | 未验证 | N/A | N/A | 未验证 | 部分 | 当前依赖环境 |
+| SwinFusion | Y | 已接入 | 已接入 | official strict load/forward 已验证 | 已验证 | 已实现 | N/A | 是 | GPU 正式长训练未执行 |
+| ZMFF | RGB | N/A | 已接入 | 逐样本 | N/A | N/A | 未验证 | 部分 | 完整优化耗时 |
+| FusionDiff | RGB | 已接入 | 已接入 | 已验证 | 已验证 | 公共完整恢复测试 PASS | 2000 步未验证 | 是 | 正式权重和完整采样耗时 |
+| ReDiffuse | RGB | 已接入 | 已接入 | 未验证 | 未验证 | 公共完整恢复测试 PASS | 未验证 | 否 | 本机无 CPython 3.8，B_Conv 真实验证阻塞 |
+
+SwinFusion 最终数据流：metadata 公共层读取 RGB → A/B/GT 同步几何变换 → 专用 adapter 提取单通道 Y `[1,H,W]`、范围 `[0,1]` → 官方单通道 SwinFusion 和未经修改的 source-based MFF loss。GT Y 只用于验证和配对。推理输出融合 Y，并与输入 A 的 Cb/Cr 合并后保存 RGB PNG。`official-y` 加载作者单通道权重；`metadata-y` 额外严格检查相邻 run 的 metadata RGB→Y data contract。
+
+ReDiffuse `Diffusion.py` 已删除全局设备和 `cuda:3`：系数跟随 `t.device`，初始噪声跟随 source tensor，timestep 跟随输入设备。当前 CPython 3.12 下 CPU 扩散设备单测 PASS；因无 Python 3.8.10，官方 B_Conv 导入、官方 `model.pt` strict load、真实模型 forward/optimizer/inference 仍为未验证。B_Conv SHA256 为 `62fb37e52d4c4638daed9e6b5e4bf7d5cc3f337811159b17b9246ff8d67d5fa1`，准备后的导入路径应为 `Condition_Noise_Predictor/B_Conv.pyc`，但本机未声称导入成功。
+
+FusionDiff/ReDiffuse 训练验证仅保留 `smoke` 和 `loss`。周期性完整 diffusion sampling validation 尚未实现；图像质量验证应运行独立 metadata 推理入口。训练脚本允许指定同一非空 output 目录完整 resume，不删除旧日志或 checkpoint，并拒绝同时设置 init 和 resume。一键推理会实际导出 `CUDA_VISIBLE_DEVICES`，Python 入口统一使用映射后的逻辑 `cuda:0`。
+
+本轮实际执行：`pytest -q baselines/test_metadata_v3.py baselines/test_metadata_training_behavior.py baselines/test_metadata_v2.py` 为 **20 passed**；Python 静态编译及两个 v3 shell 的 `bash -n` 均 PASS；`rg "cuda:3" baselines/ReDiffuse`（排除文档）为空。作者 SwinFusion `10000_E.pth` 在 CPU 上 `strict=True` 加载并完成 `(1,1,128,128)` 前向；原 `fusion_loss_mff` 在不改源码的测试 harness 中用单通道 A/B/fused 完成 backward 和 Adam step。`CUDA_VISIBLE_GPU=2 METHOD=all ... run_infer_metadata_v3.sh` 确认日志及子进程环境为物理卡 2、逻辑 `cuda:0`；随后 ZMFF 因当前环境缺 `cv2` 失败，其余缺 checkpoint/MATLAB 的方法按脚本策略跳过。使用 `/bin/true` 的脚本级 resume smoke 证明非空目录允许继续且 init+resume 返回 3。完整 2000 步采样和长训练未执行。
+
 审计日期：2026-08-03。结论中的 “PASS” 仅表示本机实际执行通过；“代码检查”不等同于真实模型运行。
 
 ## v2 verification matrix（2026-08-05）

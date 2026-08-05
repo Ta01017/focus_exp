@@ -88,15 +88,18 @@ def parse(opt_path, is_train=True):
     # ----------------------------------------
     # GPU devices
     # ----------------------------------------
-    configured_gpu_list = ','.join(str(x) for x in opt['gpu_ids'])
+    configured_gpu_list = ','.join(str(x) for x in opt.get('gpu_ids', []))
     external_cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES')
-    if external_cuda_visible:
+    if external_cuda_visible is not None:
         visible = [item.strip() for item in external_cuda_visible.split(',') if item.strip()]
+        if not visible:
+            raise ValueError('CUDA_VISIBLE_DEVICES is set but contains no valid devices')
         opt['gpu_ids'] = list(range(len(visible)))
         print('[GPU] CUDA_VISIBLE_DEVICES=' + external_cuda_visible)
     else:
-        os.environ['CUDA_VISIBLE_DEVICES'] = configured_gpu_list
-        print('[GPU] Set CUDA_VISIBLE_DEVICES from config=' + configured_gpu_list)
+        if configured_gpu_list:
+            os.environ['CUDA_VISIBLE_DEVICES'] = configured_gpu_list
+            print('[GPU] Set CUDA_VISIBLE_DEVICES from config=' + configured_gpu_list)
     print('[GPU] logical_gpu_ids=' + str(opt['gpu_ids']))
 
     # ----------------------------------------

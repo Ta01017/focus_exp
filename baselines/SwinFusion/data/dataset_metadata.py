@@ -15,7 +15,7 @@ class DatasetMetadataMFF(MetadataFusionDataset):
             raise ValueError("metadata_mff dataset requires a metadata path")
         super().__init__(
             metadata, mode, crop_size=opt.get("H_size") if mode == "train" else None,
-            channels=opt.get("n_channels") or 1, value_range="zero_one",
+            channels=1, value_range="zero_one",
             size_policy=opt.get("size_policy") or "error",
             seed=opt.get("seed") or 0, start_index=opt.get("start_index") or 0,
             max_samples=opt.get("max_samples") if opt.get("max_samples") is not None else -1,

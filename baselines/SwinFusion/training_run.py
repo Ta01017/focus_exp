@@ -74,12 +74,14 @@ def configure_training_run(opt, args):
     manifest["arguments"] = vars(args)
     (output / "train_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (output / "command.txt").write_text(" ".join(sys.argv) + "\n", encoding="utf-8")
-    rgb_mode = int(opt.get("n_channels", 1)) == 3
     contract = {"method": "SwinFusion", "task": "Multi-Focus Fusion",
-                "dataset_format": "metadata", "color_space": "RGB" if rgb_mode else "OFFICIAL_CHECKPOINT_CONTRACT_UNKNOWN",
+                "dataset_format": "metadata", "source_color_space": "RGB",
+                "model_color_space": "Y",
                 "input_a": "edit_image[0]", "input_b": "edit_image[1]",
-                "target": "image (validation pairing only; not official MFF loss)",
+                "target": "image", "training_loss": "official source-based MFF loss",
+                "validation_target": "GT luminance", "output_chroma": "CbCr from input A",
                 "ignored_edit_images": "edit_image[2:]", "normalization": "[0, 1]",
-                "formal_metadata_rgb_training": rgb_mode}
+                "checkpoint_mode": "metadata-y"}
     (output / "data_contract.json").write_text(json.dumps(contract, indent=2), encoding="utf-8")
+    (output / "options_resolved.json").write_text(json.dumps(opt, indent=2), encoding="utf-8")
     return current_step, manifest

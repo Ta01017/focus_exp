@@ -20,6 +20,7 @@ from diffusion_checkpoint import (load_model_init, resume_training, rgb_contract
 from metadata_training import normalized_tensor_to_rgb, pil_rgb_to_tensor
 from training_run import configure_training_run
 from utils.utils_option import parse
+from data.dataset_metadata import DatasetMetadataMFF
 
 
 @pytest.mark.parametrize("rgb", [(255, 0, 0), (0, 0, 255)])
@@ -69,7 +70,7 @@ def _minimal_swin_option(tmp_path):
     return path
 
 
-@pytest.mark.parametrize(("visible", "logical"), [("3", [0]), ("3,5", [0, 1])])
+@pytest.mark.parametrize(("visible", "logical"), [("2", [0]), ("1,3", [0, 1]), ("0,1,2", [0, 1, 2])])
 def test_swin_external_gpu_mapping(monkeypatch, tmp_path, visible, logical):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", visible)
     option = parse(str(_minimal_swin_option(tmp_path)))
@@ -87,6 +88,46 @@ def test_swin_output_and_tensorboard_are_isolated(tmp_path):
     assert Path(opt["path"]["tensorboard"]).is_relative_to(output)
     source = (ROOT / "SwinFusion" / "models" / "model_plain.py").read_text(encoding="utf-8")
     assert "self.opt['path'].get(" in source and "'tensorboard'" in source
+
+
+def test_swin_metadata_adapter_converts_rgb_to_single_channel_y(tmp_path):
+    images = tmp_path / "images"; images.mkdir()
+    for name, color in (("a", (255, 0, 0)), ("b", (0, 0, 255)), ("gt", (0, 255, 0))):
+        Image.new("RGB", (16, 16), color).save(images / f"{name}.png")
+    metadata = tmp_path / "metadata.json"
+    metadata.write_text(json.dumps([{"image": "images/gt.png",
+                                     "edit_image": ["images/a.png", "images/b.png"]}]), encoding="utf-8")
+    sample = DatasetMetadataMFF({"metadata": str(metadata), "phase": "test",
+                                 "n_channels": 3, "H_size": 8})[0]
+    assert sample["A"].shape == sample["B"].shape == sample["GT"].shape == (1, 16, 16)
+    expected_y = Image.open(images / "a.png").convert("YCbCr").getchannel("Y").getpixel((0, 0)) / 255
+    assert sample["A"][0, 0, 0].item() == pytest.approx(expected_y)
+
+
+def test_rediffuse_diffusion_cpu_device_follows_inputs(monkeypatch):
+    # Diffusion imports optional image helpers that are irrelevant to this unit test.
+    import types
+    monkeypatch.setitem(sys.modules, "cv2", types.ModuleType("cv2"))
+    fake_utils = types.ModuleType("utils"); fake_utils.tensor2img = lambda value: value
+    monkeypatch.setitem(sys.modules, "utils", fake_utils)
+    sys.path.insert(0, str(ROOT / "ReDiffuse"))
+    sys.modules.pop("Diffusion", None)
+    from Diffusion import GaussianDiffusion
+    diffusion = GaussianDiffusion(8, "linear")
+    source = torch.randn(2, 3, 8, 8)
+    timestep = torch.tensor([0, 7], dtype=torch.long)
+    noisy = diffusion.q_sample(source, timestep)
+    assert noisy.device == source.device and noisy.dtype == source.dtype
+    assert "cuda:3" not in (ROOT / "ReDiffuse" / "Diffusion.py").read_text(encoding="utf-8")
+
+
+def test_v3_scripts_enforce_gpu_resume_and_validation_contracts():
+    train = (ROOT.parent / "run_train_metadata_v3.sh").read_text(encoding="utf-8")
+    infer = (ROOT.parent / "run_infer_metadata_v3.sh").read_text(encoding="utf-8")
+    assert "INIT_CHECKPOINT and RESUME cannot be used together" in train
+    assert 'if [[ -n "$RESUME" ]]' in train and "--sample-val" not in train
+    assert 'export CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_GPU"' in infer
+    assert 'SWINFUSION_CHECKPOINT_MODE="${SWINFUSION_CHECKPOINT_MODE:-official-y}"' in infer
 
 
 def test_official_b_conv_is_preserved_and_wrong_python_is_clear():

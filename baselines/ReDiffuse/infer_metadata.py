@@ -32,7 +32,6 @@ def main():
     from Condition_Noise_Predictor.Rot_E_UNet import NoisePred
     device=torch.device(args.device)
     if device.type=='cuda' and not torch.cuda.is_available(): raise RuntimeError('CUDA unavailable; pass --device cpu')
-    diffusion_module.device=device
     c=config['Condition_Noise_Predictor']; u=c['UNet']; u=dict(u,in_channels=9,out_channels=3)
     model=NoisePred(u['in_channels'],u['out_channels'],u['model_channels'],u['num_res_blocks'],u['dropout'],u['time_embed_dim_mult'],u['down_sample_mult'])
     load_model_init(ckpt,model,'ReDiffuse',bool(args.allow_legacy_checkpoint),device); model.to(device).eval()
