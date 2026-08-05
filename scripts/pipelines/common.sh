@@ -40,10 +40,11 @@ run_eval_for_specs() {
   for spec in $specs; do
     [[ -n "$spec" ]] || continue
     IFS='|' read -r dataset mode metadata out_subdir metrics <<<"$spec"
-    [[ -n "$dataset" && -n "$mode" && -n "$out_subdir" ]] || {
+    [[ -n "$dataset" && -n "$mode" ]] || {
       echo "[ERROR] Bad EVAL_SPECS row: $spec" >&2
       exit 2
     }
+    out_subdir="${out_subdir:-$method}"
     if [[ -z "${metrics:-}" ]]; then
       if [[ "$mode" == gt ]]; then metrics="$EVAL_METRICS_GT"; else metrics="$EVAL_METRICS_NO_GT"; fi
     fi
