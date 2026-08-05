@@ -1,0 +1,6 @@
+dataset,sample_id,mode,method,source_a,source_b,gt,fused
+Lytro,01,no_gt,ReDiffuse,/data/Lytro/A/01_A.jpg,/data/Lytro/B/01_B.jpg,,/results/ReDiffuse/Lytro/01.png
+Lytro,01,no_gt,Ours,/data/Lytro/A/01_A.jpg,/data/Lytro/B/01_B.jpg,,/results/Ours/Lytro/01.png
+MFI-WHU,0001,gt,ReDiffuse,/data/MFI-WHU/A/0001_A.png,/data/MFI-WHU/B/0001_B.png,/data/MFI-WHU/GT/0001.png,/results/ReDiffuse/MFI-WHU/0001.png
+MFI-WHU,0001,gt,Ours,/data/MFI-WHU/A/0001_A.png,/data/MFI-WHU/B/0001_B.png,/data/MFI-WHU/GT/0001.png,/results/Ours/MFI-WHU/0001.png
+Own-Phone,0061,gt,Ours,/data/own/0061_a.png,/data/own/0061_b.png,/data/own/0061_target.png,/results/Ours/0061.png

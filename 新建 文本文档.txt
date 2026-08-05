@@ -1,0 +1,1281 @@
+请对仓库做最后一次完整修复和端到端自查：
+
+```text
+D:\focus_exp
+```
+
+当前基准提交：
+
+```text
+9717a862f659a3d2818e1ff21de9a5f9961c17ce
+```
+
+本次不是继续做局部补丁，而是完成一次最终闭环：
+
+```text
+静态检查
+→ metadata Dataset检查
+→ 模型构造
+→ checkpoint严格加载
+→ forward
+→ optimizer step
+→ checkpoint保存
+→ resume继续训练
+→ metadata完整推理
+→ 输出检查
+→ 一键脚本检查
+→ 最终报告
+```
+
+请先阅读当前仓库所有相关代码、历史报告和测试，再修改。
+
+不要假设之前的实现正确。必须自己重新验证。
+
+不知道、无法运行或缺少环境的项目，必须明确标记为：
+
+```text
+未验证
+```
+
+禁止使用：
+
+```text
+应该可以
+理论上可用
+预计通过
+```
+
+代替真实测试。
+
+---
+
+# 一、最终数据契约
+
+所有方法继续兼容同一种 metadata.json：
+
+```json
+[
+  {
+    "image": "images/000001_target.png",
+    "edit_image": [
+      "images/000001_a.png",
+      "images/000001_b.png",
+      "images/000001_focus_a.png",
+      "images/000001_focus_b.png"
+    ],
+    "prompt": "...",
+    "source_dataset": "...",
+    "source_index": 1
+  }
+]
+```
+
+唯一允许的解释：
+
+```text
+GT = image
+A  = edit_image[0]
+B  = edit_image[1]
+```
+
+必须满足：
+
+1. `edit_image` 至少包含两项。
+2. 只能读取 `[0]` 和 `[1]`。
+3. `edit_image[2:]` 完全忽略。
+4. 后两张 focus 图不解析、不检查存在性、不打开、不输入模型。
+5. 四图样本中，即使 focus 图路径故意不存在，也必须正常运行。
+6. 训练和验证时 `image` 必须存在。
+7. 推理时 `image` 可以缺失。
+8. 不能用 A 或 B 替代 GT。
+9. 相对路径以 metadata 文件所在目录为基准。
+10. 支持 Windows、Linux、UTF-8、UTF-8 BOM。
+11. A、B、GT使用同步几何变换。
+12. 当前暂时不要求恢复原始图像尺寸。
+
+---
+
+# 二、六个方法的最终协议
+
+最终固定如下，不得再变动：
+
+| Method                 | metadata读取 | 模型内部颜色       | 训练方式             |
+| ---------------------- | ---------- | ------------ | ---------------- |
+| DSIFT                  | RGB A/B    | 作者MATLAB流程   | 无训练              |
+| IFCNN                  | RGB A/B    | 官方实现要求       | 官方checkpoint推理   |
+| SwinFusion             | RGB读取后转Y   | 单通道Y         | 官方MFF loss       |
+| ZMFF                   | RGB A/B    | 原zero-shot流程 | 每样本优化            |
+| FusionDiff             | RGB        | 三通道RGB       | metadata RGB从头训练 |
+| ReDiffuse official-y   | RGB读取后转Y   | 3输入1输出       | 官方checkpoint推理   |
+| ReDiffuse metadata-rgb | RGB        | 9输入3输出       | metadata RGB从头训练 |
+
+不得再次把：
+
+* SwinFusion改成RGB三通道；
+* FusionDiff改成BGR；
+* ReDiffuse官方模型改成RGB；
+* ReDiffuse自训RGB模型改成Y。
+
+---
+
+# 三、公共 metadata 代码最终检查
+
+检查：
+
+```text
+baselines/metadata_dataset.py
+baselines/metadata_training.py
+baselines/metadata_smoke_common.py
+```
+
+必须确认：
+
+## 1. 路径检查不打开图片
+
+train/val overlap检查只能解析路径，不得调用PIL或OpenCV解码整个数据集。
+
+## 2. 图像读取统一
+
+公共读取使用：
+
+```python
+image = Image.open(path)
+image = ImageOps.exif_transpose(image)
+image = image.convert("RGB")
+```
+
+## 3. 同步变换
+
+同一个样本中：
+
+```text
+A
+B
+GT
+```
+
+必须共享：
+
+* resize参数；
+* crop坐标；
+* flip状态；
+* rotation参数；
+* padding参数。
+
+## 4. 随机性
+
+训练：
+
+* 每个epoch或每次访问可变化；
+* A/B/GT同步；
+* 支持可复现seed。
+
+验证：
+
+* 完全确定；
+* 同一个样本重复访问结果一致。
+
+## 5. 强制新增测试
+
+使用两条metadata：
+
+### 两图样本
+
+```json
+{
+  "image": "images/one_gt.png",
+  "edit_image": [
+    "images/one_a.png",
+    "images/one_b.png"
+  ]
+}
+```
+
+### 四图样本
+
+```json
+{
+  "image": "images/two_gt.png",
+  "edit_image": [
+    "images/two_a.png",
+    "images/two_b.png",
+    "images/THIS_FILE_MUST_NOT_EXIST_focus_a.png",
+    "images/THIS_FILE_MUST_NOT_EXIST_focus_b.png"
+  ]
+}
+```
+
+四图样本必须正常通过，以证明后两项未被访问。
+
+---
+
+# 四、SwinFusion最终检查
+
+目录：
+
+```text
+baselines/SwinFusion
+```
+
+## 1. 训练固定为Y通道
+
+模型必须保持：
+
+```python
+n_channels = 1
+in_chans = 1
+```
+
+metadata RGB转换为：
+
+```text
+A_Y
+B_Y
+GT_Y
+```
+
+官方MFF loss仍只处理：
+
+```text
+A_Y
+B_Y
+pred_Y
+```
+
+GT_Y只用于验证。
+
+不得修改官方MFF loss为RGB版本。
+
+## 2. 推理模式
+
+只允许：
+
+```text
+official-y
+metadata-y
+```
+
+兼容别名：
+
+```text
+official → official-y
+```
+
+不得继续保留或默认使用：
+
+```text
+metadata-rgb
+```
+
+## 3. RGB输出恢复
+
+模型输出Y后：
+
+```text
+pred_Y + A_Cb + A_Cr → RGB
+```
+
+SwinFusion明确使用A的色度。
+
+## 4. GPU映射
+
+如果：
+
+```bash
+CUDA_VISIBLE_DEVICES=1,3
+```
+
+内部必须为：
+
+```python
+gpu_ids = [0, 1]
+num_gpu = 2
+```
+
+不得覆盖外部物理卡选择。
+
+## 5. 输出隔离
+
+所有训练输出必须在：
+
+```text
+<OUTPUT_ROOT>/SwinFusion/<TAG>/
+```
+
+包括：
+
+```text
+checkpoints/
+logs/
+logs/tensorboard/
+validation/
+data_contract.json
+options_resolved.json
+command.txt
+```
+
+不得污染官方模型目录。
+
+## 6. 初始化模式
+
+必须真正测试：
+
+```text
+scratch
+official
+resume
+```
+
+### scratch
+
+不加载任何旧模型和optimizer。
+
+### official
+
+只加载官方模型权重，不加载optimizer，step从0开始。
+
+### resume
+
+恢复：
+
+* 模型；
+* optimizer；
+* scheduler；
+* step；
+* 输出目录。
+
+## 7. 必须执行的真实测试
+
+至少执行：
+
+```text
+Dataset读取
+模型forward
+MFF loss forward
+loss backward
+optimizer step
+checkpoint保存
+resume后再训练1步
+official checkpoint strict load
+official-y推理1张
+metadata-y推理1张
+```
+
+没有GPU时，可完成CPU可运行部分；GPU部分标记未验证。
+
+---
+
+# 五、FusionDiff最终检查
+
+目录：
+
+```text
+baselines/ImageFusion/FusionDiff
+```
+
+## 1. 数据契约固定
+
+```text
+A = RGB
+B = RGB
+GT = RGB
+normalization = [-1,1]
+T = 2000
+```
+
+训练和推理必须使用同一套函数完成：
+
+* RGB转tensor；
+* normalization；
+* A/B条件排列；
+* 输出反归一化；
+* RGB PNG保存。
+
+## 2. checkpoint格式
+
+完整checkpoint必须包含：
+
+```python
+{
+    "format_version": 3,
+    "method": "FusionDiff",
+    "model": ...,
+    "optimizer": ...,
+    "scheduler": ...,
+    "epoch": ...,
+    "global_step": ...,
+    "best_val_loss": ...,
+    "config": ...,
+    "data_contract": ...,
+    "random_state": ...
+}
+```
+
+data contract必须包括：
+
+```json
+{
+  "dataset_format": "metadata",
+  "color_space": "RGB",
+  "normalization": "[-1, 1]",
+  "input_a": "edit_image[0]",
+  "input_b": "edit_image[1]",
+  "target": "image",
+  "diffusion_steps": 2000
+}
+```
+
+## 3. 禁止旧权重混淆
+
+metadata训练模式下，禁止继续调用作者旧的纯：
+
+```python
+torch.save(model.state_dict(), ...)
+```
+
+只保存：
+
+```text
+checkpoints/latest.pt
+checkpoints/best_val_loss.pt
+checkpoints/epoch_XXXX.pt
+```
+
+不要生成另一套缺少data contract的权重文件。
+
+## 4. init和resume
+
+必须区分：
+
+```text
+--init-checkpoint
+--resume
+```
+
+禁止同时设置。
+
+### init
+
+只加载模型权重。
+
+### resume
+
+恢复：
+
+* 模型；
+* optimizer；
+* scheduler；
+* epoch；
+* global step；
+* best_val_loss；
+* Python RNG；
+* NumPy RNG；
+* Torch RNG；
+* CUDA RNG。
+
+## 5. scheduler保存边界
+
+epoch末顺序必须固定为：
+
+```text
+训练
+→ 验证
+→ 更新best_val_loss
+→ scheduler.step()
+→ 保存checkpoint
+```
+
+checkpoint表示完整epoch结束状态。
+
+## 6. 验证不污染训练RNG
+
+验证前保存，验证后恢复：
+
+* Python RNG；
+* NumPy RNG；
+* Torch CPU RNG；
+* CUDA RNG。
+
+必须有自动测试证明验证前后的训练随机序列一致。
+
+## 7. 平均loss
+
+禁止：
+
+```python
+average_loss = loss_sum / len(dataloader)
+```
+
+在提前停止时使用。
+
+必须：
+
+```python
+executed_steps = 0
+
+for ...:
+    executed_steps += 1
+
+average_loss = loss_sum / max(executed_steps, 1)
+```
+
+## 8. validation模式
+
+只保留真实实现的：
+
+```text
+smoke
+loss
+```
+
+如果完整sample validation没有实现，则删除：
+
+```text
+sample
+sample-val-every
+sample-val-count
+```
+
+不要保留假模式。
+
+## 9. 扩散步数
+
+正式推理只允许：
+
+```text
+T=2000
+```
+
+不得通过重新构造短beta schedule伪装成少步推理。
+
+## 10. 必须执行的真实链路
+
+使用真实FusionDiff网络，不得只用Linear模型：
+
+```text
+真实模型训练1步
+→ 保存latest.pt
+→ 结束进程
+→ resume latest.pt
+→ 再训练1步
+```
+
+必须验证：
+
+* global_step连续；
+* epoch连续；
+* optimizer state非空；
+* scheduler last_epoch连续；
+* best_val_loss恢复；
+* RNG连续；
+* 模型继续正常反向传播。
+
+然后使用生成的checkpoint执行：
+
+```text
+一条metadata完整2000步推理
+```
+
+如果硬件或耗时不允许，标记：
+
+```text
+完整2000步推理未验证
+```
+
+不能标记PASS。
+
+---
+
+# 六、ReDiffuse最终检查
+
+目录：
+
+```text
+baselines/ReDiffuse
+```
+
+## 1. B_Conv官方字节码
+
+必须保留：
+
+```text
+Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
+```
+
+运行环境：
+
+```text
+CPython 3.8.10
+```
+
+使用：
+
+```text
+prepare_official_bytecode.py
+```
+
+验证：
+
+* Python版本；
+* magic number；
+* SHA256；
+* 复制为运行时B_Conv.pyc；
+* 实际import路径。
+
+不得：
+
+* 猜写B_Conv源码；
+* 使用普通Conv替代；
+* 使用strict=False；
+* 删除官方pyc。
+
+## 2. Python 3.8依赖
+
+实际执行：
+
+```bash
+conda create -n rediffuse38 python=3.8.10 -y
+conda activate rediffuse38
+pip install -r requirements-py38.txt
+```
+
+必须记录完整安装结果。
+
+requirements不得包含要求Python 3.10/3.11以上的版本。
+
+## 3. 两种模式严格分离
+
+### official-y
+
+```text
+in_channels=3
+out_channels=1
+checkpoint=官方model.pt
+```
+
+数据流：
+
+```text
+A_RGB/B_RGB
+→ OpenCV RGB转YCrCb
+→ A_Y/B_Y
+→ 模型生成pred_Y
+→ 按作者原始公式融合A/B的Cr
+→ 按作者原始公式融合A/B的Cb
+→ YCrCb转RGB
+→ 保存PNG
+```
+
+官方色度公式必须直接复现作者实现：
+
+```python
+def fuse_chroma(a, b):
+    a = a.astype(np.float32)
+    b = b.astype(np.float32)
+
+    wa = np.abs(a - 128.0)
+    wb = np.abs(b - 128.0)
+
+    return (
+        (a * wa + b * wb)
+        / (wa + wb + 1e-8)
+    )
+```
+
+对Cr和Cb分别计算。
+
+不得再使用：
+
+```text
+A的Cb/Cr直接恢复
+```
+
+作为official-y结果。
+
+### metadata-rgb
+
+```text
+in_channels=9
+out_channels=3
+checkpoint=本项目RGB自训完整checkpoint
+```
+
+数据流：
+
+```text
+A_RGB
+B_RGB
+noisy_GT_RGB
+→ pred_RGB
+→ 保存RGB PNG
+```
+
+必须检查data contract。
+
+## 4. checkpoint组合必须阻塞错误使用
+
+以下组合必须报错：
+
+```text
+官方model.pt + metadata-rgb
+RGB自训checkpoint + official-y
+```
+
+不得自动推断、不得strict=False。
+
+## 5. 一键推理seed
+
+ReDiffuse入口必须接收：
+
+```text
+--seed
+```
+
+根脚本必须传：
+
+```bash
+--seed "$SEED"
+```
+
+FusionDiff同样必须传。
+
+## 6. 输出目录按模式隔离
+
+根推理脚本必须使用：
+
+```text
+ReDiffuse-official-y/
+ReDiffuse-metadata-rgb/
+SwinFusion-official-y/
+SwinFusion-metadata-y/
+```
+
+不得写入相同目录。
+
+## 7. 平均loss
+
+同FusionDiff一样，以实际执行step数为分母。
+
+## 8. 禁止旧纯权重保存
+
+metadata-rgb训练只保存完整checkpoint。
+
+不得另外调用旧 `save_model(model.state_dict())`。
+
+## 9. RNG、scheduler、best loss、resume
+
+与FusionDiff采用同一套最终语义：
+
+```text
+训练
+→ 验证
+→ 更新best
+→ scheduler.step
+→ 保存完整checkpoint
+```
+
+验证必须保护RNG。
+
+## 10. 必须执行的真实测试
+
+### official-y
+
+在CPython 3.8中：
+
+```text
+B_Conv import
+模型构造
+官方model.pt strict load
+真实forward
+一条metadata完整2000步推理
+```
+
+### metadata-rgb
+
+```text
+真实模型训练1步
+保存latest.pt
+退出
+resume
+再训练1步
+一条metadata完整2000步推理
+```
+
+没有完成完整2000步时，必须明确标记未验证。
+
+---
+
+# 七、一键推理脚本最终修复
+
+文件：
+
+```text
+run_infer_metadata_v3.sh
+```
+
+必须：
+
+```bash
+export CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_GPU"
+```
+
+并打印：
+
+```text
+[GPU] CUDA_VISIBLE_DEVICES=...
+```
+
+所有Python入口内部统一使用：
+
+```text
+cuda:0
+```
+
+表示映射后的逻辑卡0。
+
+必须传递：
+
+```bash
+--seed "$SEED"
+```
+
+给：
+
+* FusionDiff；
+* ReDiffuse；
+* ZMFF，如入口支持。
+
+输出目录：
+
+```bash
+SWIN_OUT="$OUTPUT_ROOT/SwinFusion-${SWINFUSION_CHECKPOINT_MODE}"
+REDIFFUSE_OUT="$OUTPUT_ROOT/ReDiffuse-${REDIFFUSE_CHECKPOINT_MODE}"
+```
+
+FusionDiff可加入TAG或checkpoint stem，防止不同权重覆盖。
+
+开始推理前打印：
+
+```text
+method
+checkpoint
+checkpoint_mode
+seed
+metadata
+output_dir
+device
+sampling_steps
+```
+
+---
+
+# 八、一键训练脚本最终修复
+
+文件：
+
+```text
+run_train_metadata_v3.sh
+```
+
+正式支持：
+
+```text
+METHOD=swinfusion
+METHOD=fusiondiff
+METHOD=rediffuse
+```
+
+`METHOD=all`只用于1-step smoke。
+
+必须检查：
+
+```text
+INIT_CHECKPOINT 和 RESUME 不能同时设置
+```
+
+新训练：
+
+* 输出目录必须为空。
+
+resume：
+
+* 输出目录可以非空；
+* 不删除任何旧内容；
+* checkpoint必须存在；
+* 恢复后写入同一实验目录。
+
+ReDiffuse必须使用：
+
+```text
+REDIFFUSE_PYTHON=Python 3.8解释器
+REDIFFUSE_MODEL_MODE=metadata-rgb
+```
+
+---
+
+# 九、Codex必须执行自己的全仓自查
+
+修改完成后，Codex不能立即提交。必须先自己执行下面的审计。
+
+## 1. 静态搜索
+
+执行并检查：
+
+```bash
+grep -R "cuda:3" baselines/ReDiffuse
+grep -R "strict=False" baselines/ReDiffuse
+grep -R "edit_image\[2\]" baselines
+grep -R "edit_image\[3\]" baselines
+grep -R "metadata-rgb" baselines/SwinFusion
+grep -R "save_model(" baselines/ImageFusion/FusionDiff
+grep -R "save_model(" baselines/ReDiffuse
+```
+
+预期：
+
+* ReDiffuse代码无`cuda:3`；
+* 正式checkpoint加载无`strict=False`；
+* baseline不读取focus图；
+* SwinFusion不再维护RGB训练模式；
+* metadata diffusion训练不再额外保存旧纯权重。
+
+## 2. Python语法
+
+对所有修改的Python文件执行：
+
+```bash
+python -m py_compile <file>
+```
+
+Python 3.8专用代码必须额外使用：
+
+```bash
+REDIFFUSE_PYTHON -m py_compile <file>
+```
+
+## 3. Shell语法
+
+执行：
+
+```bash
+bash -n run_train_metadata_v3.sh
+bash -n run_infer_metadata_v3.sh
+```
+
+## 4. 自动测试
+
+必须运行全部测试：
+
+```bash
+pytest -q
+```
+
+不能只运行新增的一个测试文件。
+
+## 5. 真实smoke
+
+必须分别完成：
+
+```text
+SwinFusion真实模型smoke
+FusionDiff真实模型smoke
+ReDiffuse Python3.8真实模型smoke
+```
+
+测试替身、mock网络或Linear模型只能作为单元测试补充，不能代替真实模型smoke。
+
+---
+
+# 十、最终自查表
+
+Codex完成修改后，必须逐项回答下面的表格，并给出证据命令。
+
+| 检查项                                     | PASS/FAIL/未验证 | 实际命令 | 证据 |
+| --------------------------------------- | ------------- | ---- | -- |
+| 四图只取前两张                                 |               |      |    |
+| SwinFusion单通道Y训练                        |               |      |    |
+| SwinFusion official-y strict load       |               |      |    |
+| SwinFusion resume                       |               |      |    |
+| FusionDiff RGB forward/backward         |               |      |    |
+| FusionDiff真实resume                      |               |      |    |
+| FusionDiff完整2000步推理                     |               |      |    |
+| ReDiffuse B_Conv导入                      |               |      |    |
+| ReDiffuse官方权重strict load                |               |      |    |
+| ReDiffuse official-y色度公式                |               |      |    |
+| ReDiffuse metadata-rgb forward/backward |               |      |    |
+| ReDiffuse真实resume                       |               |      |    |
+| ReDiffuse official-y完整2000步             |               |      |    |
+| ReDiffuse metadata-rgb完整2000步           |               |      |    |
+| 验证不污染RNG                                |               |      |    |
+| scheduler连续                             |               |      |    |
+| best_val_loss连续                         |               |      |    |
+| root seed传递                             |               |      |    |
+| 输出目录模式隔离                                |               |      |    |
+| shell语法                                 |               |      |    |
+| 全量pytest                                |               |      |    |
+
+任何一项FAIL时：
+
+1. 不得写“完成”；
+2. 继续修复；
+3. 重新运行相关测试；
+4. 直到PASS或明确受环境阻塞；
+5. 环境阻塞必须写清楚缺什么。
+
+---
+
+# 十一、最终报告重写
+
+不要继续在旧报告末尾不断追加互相冲突的章节。
+
+请重写：
+
+```text
+CODEX_METADATA_TRAINING_REPORT.md
+```
+
+顶部只保留当前版本结论。
+
+旧结论移入：
+
+```text
+docs/history/
+```
+
+或者明确标记：
+
+```text
+Historical — superseded
+```
+
+最终报告必须包含：
+
+## 1. 当前提交
+
+```text
+commit:
+date:
+platform:
+Python:
+PyTorch:
+CUDA:
+```
+
+## 2. 方法状态
+
+| Method/Mode             | Dataset | Forward | Backward | Checkpoint | Resume | Full inference | Ready |
+| ----------------------- | ------: | ------: | -------: | ---------: | -----: | -------------: | ----: |
+| DSIFT                   |         |     N/A |      N/A |        N/A |    N/A |                |       |
+| IFCNN                   |         |         |      N/A |            |    N/A |                |       |
+| SwinFusion official-y   |         |         |          |            |        |                |       |
+| SwinFusion metadata-y   |         |         |          |            |        |                |       |
+| ZMFF                    |         |         |      N/A |        N/A |    N/A |                |       |
+| FusionDiff metadata-rgb |         |         |          |            |        |                |       |
+| ReDiffuse official-y    |         |         |      N/A |            |    N/A |                |       |
+| ReDiffuse metadata-rgb  |         |         |          |            |        |                |       |
+
+## 3. 数据契约
+
+完整列出每种模式的：
+
+* 输入；
+* 颜色；
+  -通道数；
+* GT用途；
+* checkpoint结构；
+* 输出颜色。
+
+## 4. 所有测试命令
+
+原样记录实际运行命令。
+
+## 5. 所有失败与未验证项
+
+不能省略。
+
+---
+
+# 十二、最终一键命令
+
+README必须给出可以直接复制的命令。
+
+## SwinFusion训练
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=swinfusion \
+TRAIN_META=/path/train.json \
+VAL_META=/path/val.json \
+OUTPUT_ROOT=/path/train_outputs \
+TAG=swinfusion_metadata_y_v1 \
+GPUS=0 \
+INIT_MODE=scratch \
+VALIDATION_MODE=loss \
+bash run_train_metadata_v3.sh
+```
+
+## SwinFusion官方推理
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=swinfusion \
+METADATA=/path/test.json \
+OUTPUT_ROOT=/path/outputs \
+SWINFUSION_CHECKPOINT_MODE=official-y \
+SWINFUSION_CKPT=/path/10000_E.pth \
+CUDA_VISIBLE_GPU=0 \
+SEED=17 \
+bash run_infer_metadata_v3.sh
+```
+
+## FusionDiff训练
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=fusiondiff \
+TRAIN_META=/path/train.json \
+VAL_META=/path/val.json \
+OUTPUT_ROOT=/path/train_outputs \
+TAG=fusiondiff_metadata_rgb_v1 \
+GPUS=0 \
+VALIDATION_MODE=loss \
+bash run_train_metadata_v3.sh
+```
+
+## FusionDiff resume
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=fusiondiff \
+TRAIN_META=/path/train.json \
+VAL_META=/path/val.json \
+OUTPUT_ROOT=/path/train_outputs \
+TAG=fusiondiff_metadata_rgb_v1 \
+GPUS=0 \
+RESUME=/path/latest.pt \
+VALIDATION_MODE=loss \
+bash run_train_metadata_v3.sh
+```
+
+## FusionDiff推理
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=fusiondiff \
+METADATA=/path/test.json \
+OUTPUT_ROOT=/path/outputs \
+FUSIONDIFF_CKPT=/path/best_val_loss.pt \
+CUDA_VISIBLE_GPU=0 \
+SEED=17 \
+SAMPLING_STEPS=2000 \
+bash run_infer_metadata_v3.sh
+```
+
+## ReDiffuse metadata-rgb训练
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=rediffuse \
+TRAIN_META=/path/train.json \
+VAL_META=/path/val.json \
+OUTPUT_ROOT=/path/train_outputs \
+TAG=rediffuse_metadata_rgb_v1 \
+GPUS=0 \
+REDIFFUSE_PYTHON=/path/to/rediffuse38/bin/python \
+REDIFFUSE_MODEL_MODE=metadata-rgb \
+VALIDATION_MODE=loss \
+bash run_train_metadata_v3.sh
+```
+
+## ReDiffuse official-y推理
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=rediffuse \
+METADATA=/path/test.json \
+OUTPUT_ROOT=/path/outputs \
+REDIFFUSE_PYTHON=/path/to/rediffuse38/bin/python \
+REDIFFUSE_CHECKPOINT_MODE=official-y \
+REDIFFUSE_CKPT=/path/ReDiffuse/weights/model.pt \
+CUDA_VISIBLE_GPU=0 \
+SEED=17 \
+SAMPLING_STEPS=2000 \
+bash run_infer_metadata_v3.sh
+```
+
+## ReDiffuse metadata-rgb推理
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=rediffuse \
+METADATA=/path/test.json \
+OUTPUT_ROOT=/path/outputs \
+REDIFFUSE_PYTHON=/path/to/rediffuse38/bin/python \
+REDIFFUSE_CHECKPOINT_MODE=metadata-rgb \
+REDIFFUSE_CKPT=/path/best_val_loss.pt \
+CUDA_VISIBLE_GPU=0 \
+SEED=17 \
+SAMPLING_STEPS=2000 \
+bash run_infer_metadata_v3.sh
+```
+
+---
+
+# 十三、禁止事项
+
+1. 不再改metadata字段定义。
+2. 不读取focus map。
+3. 不再新增未经要求的新模型模式。
+4. 不把静态检查称为真实运行通过。
+5. 不把mock模型测试称为真实resume。
+6. 不把单步forward称为完整推理。
+7. 不使用strict=False。
+8. 不猜写B_Conv。
+9. 不改变官方ReDiffuse色度公式。
+10. 不让不同checkpoint模式共用输出目录。
+11. 不丢失seed。
+12. 不继续保存旧纯state_dict权重。
+13. 不在验证后改变训练RNG。
+14. 不错误计算提前停止时的平均loss。
+15. 不在任何关键测试FAIL时提交“全部完成”。
+16. 不运行完整长训练，本轮只完成真实最小闭环smoke。
+
+---
+
+# 十四、完成定义
+
+只有下面所有条件满足，才允许提交：
+
+1. 所有Python和Shell语法通过。
+2. 全量pytest通过。
+3. 四图不存在focus文件仍通过。
+4. SwinFusion真实forward/backward通过。
+5. SwinFusion官方checkpoint严格加载通过。
+6. FusionDiff真实训练→保存→退出→resume→继续通过。
+7. ReDiffuse Python3.8 B_Conv真实导入通过。
+8. ReDiffuse官方checkpoint严格加载通过。
+9. ReDiffuse metadata-rgb真实训练与resume通过。
+10. official-y使用作者原始色度公式。
+11. seed从根脚本传入模型入口。
+12. 不同模式输出目录隔离。
+13. 平均loss按实际step统计。
+14. metadata模式不再保存旧纯权重。
+15. 至少完成一条FusionDiff完整2000步推理，或明确记录环境阻塞。
+16. 至少完成一条ReDiffuse official-y完整2000步推理，或明确记录环境阻塞。
+17. 至少完成一条ReDiffuse metadata-rgb完整2000步推理，或明确记录环境阻塞。
+18. 最终报告与代码完全一致。
+19. Codex完成最终自查表。
+20. 所有FAIL均已修复或明确标记未验证。
+
+完成后只输出：
+
+1. 新提交哈希；
+2. 修改文件列表；
+3. 最终自查表；
+4. 实际执行的全部命令；
+5. 测试结果；
+6. 未验证项目；
+7. 最终一键训练命令；
+8. 最终一键推理命令。
+
+不要再输出下一轮“建议修复项”。如果自查发现问题，请在本轮自行修完后再提交。
