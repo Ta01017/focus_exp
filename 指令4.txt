@@ -1,0 +1,1115 @@
+请继续检查、修改并测试仓库：
+
+```text
+D:\focus_exp
+```
+
+当前基准提交：
+
+```text
+516c0a8c77850363cea247453d741c33e81acee7
+```
+
+本轮目标：
+
+1. 修复 SwinFusion 三通道训练与官方 MFF loss 不兼容的问题。
+2. 修复 ReDiffuse 扩散模块硬编码 `cuda:3` 的设备冲突。
+3. 修复一键推理脚本 GPU 参数不生效。
+4. 正确区分 SwinFusion 官方单通道 checkpoint 与自训 checkpoint。
+5. 修复 FusionDiff、ReDiffuse 的 resume 输出目录逻辑。
+6. 删除或明确禁用尚未真实实现的 sample validation。
+7. 使用作者发布的 Python 3.8 `B_Conv` 字节码完成 ReDiffuse 的真实环境验证。
+8. 保持现有 metadata 解析和 RGB 数据链路不被破坏。
+
+不要改动已经正确的数据字段规则。
+
+---
+
+# 一、不可改变的 metadata 规则
+
+继续保持：
+
+```text
+GT = image
+A  = edit_image[0]
+B  = edit_image[1]
+```
+
+要求：
+
+1. `edit_image` 至少包含两项。
+2. 只读取 `edit_image[0]` 和 `edit_image[1]`。
+3. `edit_image[2:]` 完全忽略。
+4. 四图 metadata 中的 focus 图不得被检查、打开或输入模型。
+5. 训练和验证时 `image` 必须作为 GT。
+6. 推理时 `image` 可以缺失。
+7. 相对路径以 metadata.json 所在目录解析。
+8. 支持 Windows、Linux、UTF-8 和 UTF-8 BOM。
+9. A、B、GT执行同步几何预处理。
+10. 当前不要求输出恢复到原始尺寸。
+
+不要重新设计公共 metadata schema。
+
+---
+
+# 二、明确各方法的颜色和训练协议
+
+本轮不要强迫所有方法使用完全相同的内部颜色表达。
+
+采用以下最终协议：
+
+| Method     | metadata读取 | 模型内部输入         | 训练方式              |
+| ---------- | ---------- | -------------- | ----------------- |
+| DSIFT      | RGB        | 原 MATLAB 实现要求  | 无训练               |
+| IFCNN      | RGB        | 官方模型要求         | 官方 checkpoint 推理  |
+| SwinFusion | RGB读取后转 Y  | 单通道 Y          | 保留官方 MFF 训练协议     |
+| ZMFF       | RGB        | 原 zero-shot 实现 | 逐样本优化             |
+| FusionDiff | RGB        | RGB 三通道        | metadata RGB 从头训练 |
+| ReDiffuse  | RGB        | RGB 三通道        | metadata RGB 从头训练 |
+
+重要：
+
+* FusionDiff 和 ReDiffuse 继续使用 RGB 训练和 RGB 推理。
+* SwinFusion 不再尝试三通道 RGB MFF 训练。
+* SwinFusion 保留官方单通道 Y 路线，避免修改官方 loss 和模型协议。
+
+---
+
+# 三、修复 SwinFusion：恢复官方单通道 Y 训练
+
+处理目录：
+
+```text
+D:\focus_exp\baselines\SwinFusion
+```
+
+当前错误：
+
+```python
+opt["n_channels"] = 3
+opt["netG"]["in_chans"] = 3
+```
+
+但官方 `loss_mff.py` 的 Sobel 卷积核是：
+
+```python
+[1, 1, 3, 3]
+```
+
+只能处理单通道输入。
+
+因此必须取消 metadata RGB 三通道 SwinFusion 训练，恢复官方单通道 Y 流程。
+
+## 1. 模型配置
+
+在 SwinFusion MFIF 路线中固定：
+
+```python
+opt["n_channels"] = 1
+opt["netG"]["in_chans"] = 1
+```
+
+不得为了 RGB 输入修改 `loss_mff.py`。
+
+不要：
+
+* 将 Sobel 改成 depthwise RGB；
+* 对三个通道分别计算后平均；
+* 修改官方 MFF loss；
+* 修改模型第一层为三通道并继续加载官方单通道权重。
+
+## 2. metadata RGB 转 Y
+
+metadata公共读取仍返回 PIL RGB。
+
+在 SwinFusion专用 Dataset adapter 中，将 A、B、GT转换到 YCbCr。
+
+推荐使用 PIL：
+
+```python
+ycbcr = image.convert("YCbCr")
+y, cb, cr = ycbcr.split()
+```
+
+训练模型输入：
+
+```text
+A_Y
+B_Y
+GT_Y
+```
+
+要求：
+
+* A、B、GT先执行同步几何变换；
+* 几何变换完成后再提取 Y，或保证 Y/Cb/Cr同步；
+* 训练 tensor 为单通道 `[1,H,W]`；
+* 数值范围与官方 SwinFusion一致；
+* 不把 RGB 三通道输入单通道模型。
+
+## 3. SwinFusion训练目标
+
+继续保留官方：
+
+```text
+G_lossfn_type = mff
+```
+
+也就是说训练 loss仍由 A_Y、B_Y和融合 Y计算。
+
+GT_Y用于：
+
+* 验证 PSNR/SSIM；
+* 结果配对；
+* 可视化对照。
+
+GT不得被错误描述成官方MFF loss的监督目标。
+
+README和报告中写明：
+
+```text
+SwinFusion preserves its official single-channel luminance
+training protocol. Metadata RGB images are converted to Y.
+The GT luminance is used for validation, while the original
+MFF source-based loss is preserved for training.
+```
+
+## 4. 推理色度恢复
+
+SwinFusion输出只有融合 Y。
+
+保存 RGB结果时使用 A 的 Cb/Cr：
+
+```text
+output_Y + A_Cb + A_Cr → RGB
+```
+
+建议：
+
+```python
+merged = Image.merge("YCbCr", (pred_y, a_cb, a_cr))
+rgb = merged.convert("RGB")
+```
+
+要求：
+
+* 色度来自 A；
+* 不从 B复制色度；
+* 不随机生成色度；
+* 输出以 RGB PNG保存。
+
+## 5. checkpoint模式
+
+统一 SwinFusion推理模式，不再使用容易误导的：
+
+```text
+metadata-rgb
+```
+
+改成：
+
+```text
+official-y
+metadata-y
+```
+
+语义：
+
+### official-y
+
+* 加载作者官方单通道 MFIF checkpoint；
+* 使用 RGB→Y；
+* 模型输出 Y；
+* 使用 A 的 Cb/Cr恢复 RGB。
+
+### metadata-y
+
+* 加载本项目 metadata Y训练得到的单通道 checkpoint；
+* 数据流程与 official-y相同；
+* checkpoint应带本项目 data contract。
+
+如果为了兼容旧参数需要保留：
+
+```text
+official
+```
+
+可以作为 `official-y` 的别名。
+
+删除或禁止：
+
+```text
+metadata-rgb
+```
+
+除非仓库中确实已有经过验证的 RGB SwinFusion模型，但本次不要继续维护该路线。
+
+## 6. SwinFusion data contract
+
+自训 checkpoint记录：
+
+```json
+{
+  "method": "SwinFusion",
+  "dataset_format": "metadata",
+  "source_color_space": "RGB",
+  "model_color_space": "Y",
+  "input_a": "edit_image[0]",
+  "input_b": "edit_image[1]",
+  "target": "image",
+  "training_loss": "official source-based MFF loss",
+  "validation_target": "GT luminance",
+  "output_chroma": "CbCr from input A"
+}
+```
+
+---
+
+# 四、继续修复 SwinFusion GPU逻辑映射
+
+文件：
+
+```text
+baselines\SwinFusion\utils\utils_option.py
+```
+
+当外部存在：
+
+```bash
+CUDA_VISIBLE_DEVICES=1,2,3
+```
+
+时：
+
+1. 不得覆盖环境变量；
+2. 内部逻辑卡必须重映射为 `[0,1,2]`；
+3. `num_gpu=3`。
+
+实现：
+
+```python
+external = os.environ.get("CUDA_VISIBLE_DEVICES")
+
+if external:
+    visible = [
+        value.strip()
+        for value in external.split(",")
+        if value.strip()
+    ]
+
+    if not visible:
+        raise ValueError(
+            "CUDA_VISIBLE_DEVICES is set but contains no valid devices"
+        )
+
+    opt["gpu_ids"] = list(range(len(visible)))
+    opt["num_gpu"] = len(visible)
+
+    print(f"[GPU] CUDA_VISIBLE_DEVICES={external}")
+    print(f"[GPU] logical_gpu_ids={opt['gpu_ids']}")
+    print(f"[GPU] num_gpu={opt['num_gpu']}")
+else:
+    configured = [
+        str(value)
+        for value in opt.get("gpu_ids", [])
+    ]
+    configured_string = ",".join(configured)
+
+    if configured_string:
+        os.environ["CUDA_VISIBLE_DEVICES"] = configured_string
+
+    opt["num_gpu"] = len(opt.get("gpu_ids", []))
+```
+
+测试：
+
+```bash
+CUDA_VISIBLE_DEVICES=2
+CUDA_VISIBLE_DEVICES=1,3
+CUDA_VISIBLE_DEVICES=0,1,2
+```
+
+分别确认内部卡数为1、2、3。
+
+---
+
+# 五、继续隔离 SwinFusion输出
+
+确保所有自训结果写入：
+
+```text
+<OUTPUT_ROOT>/SwinFusion/<TAG>/
+```
+
+至少包括：
+
+```text
+checkpoints/
+logs/
+logs/tensorboard/
+validation/
+options_resolved.json
+data_contract.json
+command.txt
+```
+
+TensorBoard必须使用：
+
+```python
+opt["path"]["tensorboard"]
+```
+
+并指向：
+
+```text
+<output-dir>/logs/tensorboard
+```
+
+不得写回作者官方目录。
+
+继续保留：
+
+```text
+--init-mode scratch
+--init-mode official
+--init-mode resume
+```
+
+并确保三种模式不会自动扫描错误目录。
+
+---
+
+# 六、修复 ReDiffuse 的硬编码 cuda:3
+
+处理：
+
+```text
+D:\focus_exp\baselines\ReDiffuse\Diffusion.py
+D:\focus_exp\baselines\ReDiffuse\train.py
+D:\focus_exp\baselines\ReDiffuse\infer_metadata.py
+```
+
+当前错误：
+
+```python
+device = "cuda:3" if torch.cuda.is_available() else "cpu"
+```
+
+扩散系数可能被放到 `cuda:3`，而模型和数据在 `cuda:0`。
+
+必须彻底删除对全局硬编码设备的依赖。
+
+## 1. 修改 `_extract`
+
+将类似：
+
+```python
+out = a.to(device).gather(0, t)
+```
+
+改为：
+
+```python
+def _extract(self, a, t, x_shape):
+    out = a.to(
+        device=t.device,
+        dtype=torch.float32,
+    ).gather(0, t)
+
+    return out.reshape(
+        t.shape[0],
+        *((1,) * (len(x_shape) - 1)),
+    )
+```
+
+要求：
+
+* 设备来自 `t.device`；
+* 不依赖模块全局 `device`；
+* 支持CPU、单GPU和映射后的逻辑GPU。
+
+## 2. 随机噪声
+
+不要：
+
+```python
+torch.randn(shape, device=global_device)
+```
+
+改为：
+
+```python
+torch.randn_like(source_image)
+```
+
+或者：
+
+```python
+torch.randn(
+    source_image.shape,
+    device=source_image.device,
+    dtype=source_image.dtype,
+)
+```
+
+## 3. timestep
+
+创建 timestep时使用输入设备：
+
+```python
+t = torch.randint(
+    0,
+    diffusion_steps,
+    (batch_size,),
+    device=target.device,
+    dtype=torch.long,
+)
+```
+
+## 4. 删除训练端临时猴子补丁
+
+如果当前 `train.py` 或 `infer_metadata.py`存在：
+
+```python
+diffusion_module.device = device
+```
+
+在 Diffusion彻底设备无关后，应删除该依赖。
+
+可以暂时保留兼容，但核心逻辑不得再读取全局device。
+
+## 5. 设备测试
+
+至少测试：
+
+```text
+CPU
+CUDA_VISIBLE_DEVICES=2 → 程序内部 cuda:0
+CUDA_VISIBLE_DEVICES=1,3 → 单进程默认 cuda:0
+```
+
+确认没有任何：
+
+```text
+cuda:3
+```
+
+硬编码残留。
+
+执行：
+
+```bash
+grep -R "cuda:3" baselines/ReDiffuse
+```
+
+结果必须为空，README历史文本除外。
+
+---
+
+# 七、ReDiffuse B_Conv 字节码处理
+
+继续保留作者发布的：
+
+```text
+baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
+```
+
+不得删除。
+
+继续使用：
+
+```text
+prepare_official_bytecode.py
+```
+
+要求：
+
+1. CPython 3.8检查；
+2. magic number检查；
+3. SHA256记录；
+4. 复制为运行时 `B_Conv.pyc`；
+5. 实际导入；
+6. 打印导入路径。
+
+推荐环境：
+
+```bash
+conda create -n rediffuse38 python=3.8.10 -y
+conda activate rediffuse38
+```
+
+## 必须执行的真实验证
+
+在 Python 3.8.10 环境完成：
+
+```text
+B_Conv magic check
+B_Conv import
+ReDiffuse model construction
+official model.pt strict=True load
+one forward
+one optimizer step
+one metadata inference smoke
+```
+
+如果任一步失败：
+
+* 保存完整日志；
+* 不猜写B_Conv源码；
+* 不使用strict=False；
+* 不删除旋转等变模块；
+* 将ReDiffuse标为未通过。
+
+---
+
+# 八、FusionDiff保持 metadata RGB
+
+FusionDiff继续使用：
+
+```text
+A  = edit_image[0] RGB
+B  = edit_image[1] RGB
+GT = image RGB
+```
+
+不要改回BGR。
+
+继续保持：
+
+```text
+RGB → [0,1] → [-1,1]
+```
+
+训练和推理完全一致。
+
+checkpoint继续记录：
+
+```json
+{
+  "dataset_format": "metadata",
+  "color_space": "RGB",
+  "normalization": "[-1, 1]",
+  "diffusion_steps": 2000
+}
+```
+
+---
+
+# 九、修复 FusionDiff 和 ReDiffuse 的 resume 输出目录
+
+文件：
+
+```text
+D:\focus_exp\run_train_metadata_v3.sh
+```
+
+当前错误：
+
+即使传了 `RESUME`，仍要求输出目录为空。
+
+修改逻辑：
+
+```bash
+prepare_new_output() {
+    local out="$1"
+
+    if [[ -e "$out" ]] && [[ -n "$(ls -A "$out" 2>/dev/null)" ]]; then
+        echo "[ERROR] Output directory is not empty: $out" >&2
+        exit 3
+    fi
+
+    mkdir -p "$out"
+}
+```
+
+对于新训练：
+
+```bash
+if [[ -z "${RESUME:-}" ]]; then
+    prepare_new_output "$out"
+fi
+```
+
+对于resume：
+
+```bash
+if [[ -n "${RESUME:-}" ]]; then
+    [[ -f "$RESUME" ]] || {
+        echo "[ERROR] Resume checkpoint not found: $RESUME" >&2
+        exit 3
+    }
+
+    mkdir -p "$out"
+fi
+```
+
+要求：
+
+* resume允许目录已有日志和checkpoint；
+* 不删除已有内容；
+* 不清空目录；
+* 不覆盖其他实验目录；
+* 日志打印resume checkpoint和output dir。
+
+## 禁止 init 与 resume 同时设置
+
+脚本增加：
+
+```bash
+if [[ -n "${INIT_CHECKPOINT:-}" && -n "${RESUME:-}" ]]; then
+    echo "[ERROR] INIT_CHECKPOINT and RESUME cannot be used together." >&2
+    exit 3
+fi
+```
+
+ReDiffuse同样适用。
+
+---
+
+# 十、修复一键推理 GPU参数
+
+文件：
+
+```text
+D:\focus_exp\run_infer_metadata_v3.sh
+```
+
+当前定义了：
+
+```bash
+CUDA_VISIBLE_GPU="${CUDA_VISIBLE_GPU:-0}"
+```
+
+但没有真正导出。
+
+在运行任何Python方法前加入：
+
+```bash
+export CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_GPU"
+
+echo "[GPU] CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+```
+
+注意：
+
+* Python入口统一使用 `--device cuda:0`；
+* `cuda:0`表示选择后的逻辑卡0；
+* 不要把物理卡号直接传成 `cuda:2`；
+* ReDiffuse独立Python进程也继承同一环境变量。
+
+MATLAB DSIFT不需要使用该参数。
+
+---
+
+# 十一、修复 SwinFusion 一键推理模式
+
+在：
+
+```text
+run_infer_metadata_v3.sh
+```
+
+增加：
+
+```bash
+SWINFUSION_CHECKPOINT_MODE="${SWINFUSION_CHECKPOINT_MODE:-official-y}"
+```
+
+调用：
+
+```bash
+--checkpoint-mode "$SWINFUSION_CHECKPOINT_MODE"
+```
+
+允许：
+
+```text
+official-y
+metadata-y
+```
+
+兼容别名：
+
+```text
+official → official-y
+```
+
+默认：
+
+```text
+official-y
+```
+
+示例：
+
+## 官方 checkpoint
+
+```bash
+METHOD=swinfusion \
+SWINFUSION_CHECKPOINT_MODE=official-y \
+SWINFUSION_CKPT=/path/10000_E.pth \
+...
+```
+
+## metadata自训 checkpoint
+
+```bash
+METHOD=swinfusion \
+SWINFUSION_CHECKPOINT_MODE=metadata-y \
+SWINFUSION_CKPT=/path/checkpoint.pth \
+...
+```
+
+不要再默认传：
+
+```text
+metadata-rgb
+```
+
+---
+
+# 十二、处理 validation-mode=sample
+
+FusionDiff和ReDiffuse当前声明了：
+
+```text
+smoke
+loss
+sample
+```
+
+但 `sample`没有真正调用完整生成。
+
+本轮二选一，优先采用方案A。
+
+## 方案A：暂时移除未实现的 sample 模式
+
+在真实sample validation未实现前：
+
+```text
+--validation-mode smoke
+--validation-mode loss
+```
+
+只保留这两个值。
+
+移除或隐藏：
+
+```text
+sample
+--sample-val-every
+--sample-val-count
+```
+
+README明确写：
+
+```text
+Periodic full diffusion sampling validation is not implemented.
+Use validation-mode=loss during training and run the standalone
+metadata inference script for image-quality evaluation.
+```
+
+这是本轮推荐方案，风险最低。
+
+## 方案B：真正实现 sample
+
+只有确实完整实现以下流程时才能保留：
+
+1. 固定验证样本；
+2. 调用完整 `p_sample_loop()`；
+3. 使用T=2000；
+4. 保存RGB预测；
+5. 计算PSNR/SSIM；
+6. 避免每个epoch对完整验证集采样；
+7. 正确切换eval/no_grad；
+8. 采样后恢复train模式。
+
+不要保留一个实际上仍计算noise loss的假sample模式。
+
+---
+
+# 十三、训练脚本最终支持范围
+
+更新：
+
+```text
+run_train_metadata_v3.sh
+```
+
+正式支持：
+
+```text
+METHOD=swinfusion
+METHOD=fusiondiff
+METHOD=rediffuse
+```
+
+其中：
+
+## SwinFusion
+
+* metadata RGB读取；
+* 内部转Y；
+* 官方单通道MFF训练；
+* GT Y用于验证；
+* 默认checkpoint模式metadata-y。
+
+## FusionDiff
+
+* metadata RGB从头训练；
+* 完整checkpoint/resume；
+* validation-mode默认loss。
+
+## ReDiffuse
+
+* metadata RGB从头训练；
+* 使用Python3.8；
+* 先准备B_Conv字节码；
+* 设备不能硬编码；
+* 完整checkpoint/resume。
+
+`METHOD=all`只用于1-step smoke，不建议正式长训练。
+
+---
+
+# 十四、推理脚本最终支持范围
+
+更新：
+
+```text
+run_infer_metadata_v3.sh
+```
+
+支持：
+
+```text
+dsift
+ifcnn
+swinfusion
+zmff
+fusiondiff
+rediffuse
+all
+```
+
+要求：
+
+* GPU参数真实生效；
+* 每个Python程序内部使用逻辑 `cuda:0`；
+* SwinFusion支持official-y和metadata-y；
+* FusionDiff只接受metadata RGB checkpoint；
+* ReDiffuse先准备B_Conv；
+* diffusion方法强制T=2000；
+* 四图只取前两张；
+* 输出RGB PNG。
+
+---
+
+# 十五、必须新增或更新的测试
+
+## 1. SwinFusion Y通道测试
+
+构造RGB样本，验证：
+
+* metadata读取为RGB；
+* SwinFusion adapter输出 `[1,H,W]`；
+* A/B/GT均为单通道；
+* MFF loss能够前向；
+* optimizer step成功；
+* 不再出现3通道Sobel错误。
+
+## 2. SwinFusion推理测试
+
+分别测试：
+
+```text
+official-y
+metadata-y
+```
+
+验证：
+
+* checkpoint通道匹配；
+* 模型输出Y；
+* A的CbCr成功恢复；
+* 最终输出为RGB；
+* 尺寸与模型处理后尺寸一致。
+
+## 3. ReDiffuse设备测试
+
+执行静态搜索：
+
+```bash
+grep -R "cuda:3" baselines/ReDiffuse
+```
+
+代码中不应再有硬编码。
+
+运行：
+
+```text
+CPU forward
+单GPU forward
+一个optimizer step
+```
+
+检查所有tensor和buffer位于同一设备。
+
+## 4. GPU脚本测试
+
+执行：
+
+```bash
+CUDA_VISIBLE_GPU=2 METHOD=fusiondiff ...
+```
+
+日志必须打印：
+
+```text
+CUDA_VISIBLE_DEVICES=2
+```
+
+Python内部必须看到：
+
+```text
+cuda:0
+```
+
+## 5. resume测试
+
+对FusionDiff和ReDiffuse：
+
+1. 训练一步并保存；
+2. 在同一输出目录resume；
+3. 不因目录非空失败；
+4. epoch/global_step正确恢复；
+5. optimizer正确恢复；
+6. 不允许init和resume同时出现。
+
+## 6. validation模式测试
+
+如果采用方案A：
+
+```text
+smoke
+loss
+```
+
+有效；
+
+```text
+sample
+```
+
+应参数解析失败或明确提示未实现。
+
+---
+
+# 十六、更新报告
+
+更新：
+
+```text
+CODEX_METADATA_TRAINING_REPORT.md
+```
+
+删除或明确标记旧的冲突内容。
+
+建议顶部增加：
+
+```text
+Current status for commit <new hash>
+Older v2/v3 notes below are historical and superseded.
+```
+
+状态表：
+
+| Method     | Internal color  |   Metadata train | Metadata infer |   Forward | Optimizer | Resume | Sampling | Ready | Blocker                        |
+| ---------- | --------------- | ---------------: | -------------: | --------: | --------: | -----: | -------: | ----: | ------------------------------ |
+| DSIFT      | Original MATLAB |              N/A |                |       N/A |       N/A |    N/A |          |       | MATLAB                         |
+| IFCNN      | Official        | No official loop |                |           |       N/A |    N/A |          |       |                                |
+| SwinFusion | Y               |                  |                |           |           |        |      N/A |       |                                |
+| ZMFF       | RGB             |              N/A |                | Per-image |       N/A |    N/A |          |       |                                |
+| FusionDiff | RGB             |                  |                |           |           |        |          |       |                                |
+| ReDiffuse  | RGB             |                  |                |           |           |        |          |       | Python 3.8/B_Conv verification |
+
+必须诚实区分：
+
+* 静态检查；
+* Dataset测试；
+* model forward；
+* optimizer step；
+* checkpoint load；
+* resume；
+* 完整采样。
+
+未运行的写：
+
+```text
+未验证
+```
+
+---
+
+# 十七、不要做的事情
+
+1. 不重新修改metadata字段规则。
+2. 不读取edit_image后两张。
+3. 不把focus map输入baseline。
+4. 不再训练RGB三通道SwinFusion。
+5. 不修改SwinFusion官方MFF loss来兼容RGB。
+6. 不把SwinFusion GT描述成训练loss目标。
+7. 不把FusionDiff改回BGR。
+8. 不猜写B_Conv源码。
+9. 不使用strict=False掩盖错误。
+10. 不保留cuda:3硬编码。
+11. 不让GPU选择参数只打印但不生效。
+12. 不允许init和resume同时设置。
+13. 不因resume目录非空而拒绝继续。
+14. 不保留假的sample validation。
+15. 不修改扩散T来实现伪少步采样。
+16. 不污染作者官方checkpoint目录。
+17. 不运行长时间全量训练，本轮只做smoke。
+
+---
+
+# 十八、最终验收标准
+
+完成后必须满足：
+
+1. SwinFusion恢复单通道Y训练。
+2. SwinFusion MFF loss可正常处理输入。
+3. SwinFusion官方checkpoint可以official-y推理。
+4. SwinFusion自训checkpoint可以metadata-y推理。
+5. SwinFusion输出通过A色度恢复为RGB。
+6. SwinFusion GPU逻辑映射正确。
+7. ReDiffuse不存在cuda:3硬编码。
+8. ReDiffuse CPU/单GPU设备一致。
+9. B_Conv在Python3.8环境真实导入。
+10. ReDiffuse官方model.pt strict加载已测试。
+11. FusionDiff继续保持metadata RGB。
+12. FusionDiff和ReDiffuse完整resume可在非空运行目录继续。
+13. init与resume互斥。
+14. 一键推理GPU参数真实生效。
+15. sample validation已真正实现或明确删除。
+16. 四图metadata仍只读取前两张。
+17. v3训练和推理脚本实际完成smoke。
+18. 报告如实记录所有未验证项目。
+
+完成后请输出：
+
+1. 修改文件列表；
+2. 每个文件修改摘要；
+3. SwinFusion RGB→Y→RGB数据流；
+4. SwinFusion scratch/official/resume命令；
+5. SwinFusion official-y和metadata-y推理命令；
+6. FusionDiff训练、resume、推理命令；
+7. ReDiffuse Python3.8环境、B_Conv准备、训练、resume、推理命令；
+8. ReDiffuse设备测试结果；
+9. B_Conv SHA256和实际导入路径；
+10. 所有执行的smoke命令；
+11. 所有测试结果；
+12. 未解决问题；
+13. 新提交哈希。
+
+请直接修改代码并执行能够执行的测试，不要只返回建议。
