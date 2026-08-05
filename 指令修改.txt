@@ -1,0 +1,1130 @@
+请继续检查、修改并测试仓库：
+
+```text
+D:\focus_exp
+```
+
+当前基准提交：
+
+```text
+b68023e6619efddeb96f4b2f4e22bf0ea8759df7
+```
+
+本轮只修复以下问题：
+
+1. ReDiffuse 正确区分作者官方 Y 通道 checkpoint 与 metadata RGB 自训练 checkpoint。
+2. 为 ReDiffuse 建立真正可安装的 Python 3.8.10 环境依赖。
+3. 修复 FusionDiff、ReDiffuse 验证过程污染训练随机状态。
+4. 修复 FusionDiff、ReDiffuse resume 时 scheduler 状态和 `best_val_loss` 不连续。
+5. 更新 ReDiffuse README 和总报告，删除与当前实现冲突的旧说明。
+6. 完成真实 smoke 测试。
+
+不要重新修改已经正确的 metadata 数据规则。
+
+---
+
+# 一、继续保持 metadata 规则
+
+必须继续保持：
+
+```text
+GT = image
+A  = edit_image[0]
+B  = edit_image[1]
+```
+
+要求：
+
+1. `edit_image` 至少包含两项。
+2. 只读取前两项。
+3. `edit_image[2:]` 完全忽略。
+4. 四图样本的 focus 图不检查、不读取、不输入模型。
+5. 训练和验证时 `image` 必须存在。
+6. 推理时 `image` 可以缺失。
+7. 相对路径以 metadata.json 所在目录为基准。
+8. 支持 Windows、Linux、UTF-8 BOM。
+9. A、B、GT执行同步几何变换。
+10. 当前不要求恢复原始尺寸。
+
+---
+
+# 二、ReDiffuse 必须拆分两种明确模式
+
+当前 ReDiffuse 存在两种结构不同的模型，必须彻底区分，不能再混用。
+
+## 模式一：`official-y`
+
+对应作者官方：
+
+```text
+weights/model.pt
+```
+
+模型结构：
+
+```text
+in_channels = 3
+out_channels = 1
+```
+
+输入语义：
+
+```text
+A_Y
+B_Y
+noisy_Y
+```
+
+条件拼接后总共3通道。
+
+输出：
+
+```text
+预测单通道Y噪声
+```
+
+## 模式二：`metadata-rgb`
+
+对应本项目 metadata RGB 从头训练模型。
+
+模型结构：
+
+```text
+in_channels = 9
+out_channels = 3
+```
+
+输入语义：
+
+```text
+A_RGB
+B_RGB
+noisy_GT_RGB
+```
+
+条件拼接后总共9通道。
+
+输出：
+
+```text
+预测3通道RGB噪声
+```
+
+这两种 checkpoint 绝对不能互相加载。
+
+---
+
+# 三、修改 ReDiffuse 推理入口
+
+处理：
+
+```text
+D:\focus_exp\baselines\ReDiffuse\infer_metadata.py
+```
+
+新增参数：
+
+```text
+--checkpoint-mode official-y
+--checkpoint-mode metadata-rgb
+```
+
+默认建议：
+
+```text
+official-y
+```
+
+因为作者仓库自带的是官方 `model.pt`。
+
+## 1. official-y 模式
+
+要求：
+
+```python
+in_channels = 3
+out_channels = 1
+```
+
+数据流程：
+
+```text
+metadata RGB A/B
+→ 转YCbCr
+→ 提取A_Y、B_Y
+→ 扩散生成output_Y
+→ 使用A的Cb/Cr恢复RGB
+→ 保存RGB PNG
+```
+
+推荐：
+
+```python
+a_ycbcr = image_a.convert("YCbCr")
+b_ycbcr = image_b.convert("YCbCr")
+
+a_y, a_cb, a_cr = a_ycbcr.split()
+b_y, _, _ = b_ycbcr.split()
+```
+
+模型只使用：
+
+```text
+A_Y
+B_Y
+```
+
+推理结果：
+
+```python
+output_ycbcr = Image.merge(
+    "YCbCr",
+    (
+        pred_y,
+        a_cb,
+        a_cr,
+    ),
+)
+
+output_rgb = output_ycbcr.convert("RGB")
+```
+
+要求：
+
+* 使用 A 的 Cb/Cr；
+* 不使用 B 的色度；
+* 不把官方模型改成RGB；
+* 使用 `strict=True` 加载官方 `model.pt`；
+* missing keys必须为空；
+* unexpected keys必须为空。
+
+## 2. metadata-rgb 模式
+
+要求：
+
+```python
+in_channels = 9
+out_channels = 3
+```
+
+数据流程：
+
+```text
+A_RGB
+B_RGB
+noisy_RGB
+→ 输出RGB
+```
+
+加载本项目训练的完整 checkpoint。
+
+必须检查：
+
+```python
+checkpoint["data_contract"]["dataset_format"] == "metadata"
+checkpoint["data_contract"]["color_space"] == "RGB"
+checkpoint["data_contract"]["model_mode"] == "metadata-rgb"
+checkpoint["data_contract"]["in_channels"] == 9
+checkpoint["data_contract"]["out_channels"] == 3
+```
+
+不符合则拒绝加载。
+
+## 3. 禁止自动推断模式
+
+不要通过权重文件名猜测。
+
+用户必须明确选择：
+
+```text
+official-y
+metadata-rgb
+```
+
+如果没有指定，可以默认 `official-y`，但日志必须打印：
+
+```text
+[REDIFFUSE] checkpoint_mode=official-y
+```
+
+## 4. checkpoint错误提示
+
+如果用官方 `model.pt` 加载 `metadata-rgb`：
+
+```text
+Checkpoint/model mismatch:
+official-y checkpoint cannot be loaded into metadata-rgb model.
+```
+
+如果用RGB自训权重加载 `official-y`：
+
+```text
+Checkpoint/model mismatch:
+metadata-rgb checkpoint cannot be loaded into official-y model.
+```
+
+不得回退到：
+
+```python
+strict=False
+```
+
+---
+
+# 四、修改 ReDiffuse 训练入口
+
+处理：
+
+```text
+D:\focus_exp\baselines\ReDiffuse\train.py
+```
+
+本项目监督训练默认只支持：
+
+```text
+--model-mode metadata-rgb
+```
+
+因为训练数据链路是RGB。
+
+启动时强制：
+
+```python
+in_channels = 9
+out_channels = 3
+```
+
+并打印：
+
+```text
+[REDIFFUSE TRAIN]
+model_mode=metadata-rgb
+dataset_format=metadata
+color_space=RGB
+input_order=A,B
+target=image
+in_channels=9
+out_channels=3
+diffusion_steps=2000
+```
+
+保存的 data contract：
+
+```json
+{
+  "method": "ReDiffuse",
+  "model_mode": "metadata-rgb",
+  "dataset_format": "metadata",
+  "color_space": "RGB",
+  "input_a": "edit_image[0]",
+  "input_b": "edit_image[1]",
+  "target": "image",
+  "ignored_edit_images": "edit_image[2:]",
+  "normalization": "[-1, 1]",
+  "in_channels": 9,
+  "out_channels": 3,
+  "diffusion_steps": 2000,
+  "b_conv_source": "official CPython 3.8 bytecode"
+}
+```
+
+官方 `model.pt` 不作为 metadata-rgb 模型初始化，因为结构不同。
+
+如果用户尝试：
+
+```text
+--init-checkpoint weights/model.pt
+```
+
+必须给出明确错误：
+
+```text
+The official ReDiffuse model.pt is an official-y 3→1 model
+and cannot initialize the metadata-rgb 9→3 model.
+```
+
+---
+
+# 五、更新一键推理脚本中的 ReDiffuse 模式
+
+处理：
+
+```text
+D:\focus_exp\run_infer_metadata_v3.sh
+```
+
+新增：
+
+```bash
+REDIFFUSE_CHECKPOINT_MODE="${REDIFFUSE_CHECKPOINT_MODE:-official-y}"
+```
+
+ReDiffuse调用增加：
+
+```bash
+--checkpoint-mode "$REDIFFUSE_CHECKPOINT_MODE"
+```
+
+## 官方权重示例
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=rediffuse \
+METADATA=/path/test.json \
+OUTPUT_ROOT=/path/outputs \
+REDIFFUSE_PYTHON=/path/to/envs/rediffuse38/bin/python \
+REDIFFUSE_CKPT=/path/to/focus_exp/baselines/ReDiffuse/weights/model.pt \
+REDIFFUSE_CHECKPOINT_MODE=official-y \
+CUDA_VISIBLE_GPU=0 \
+SAMPLING_STEPS=2000 \
+bash run_infer_metadata_v3.sh
+```
+
+## metadata RGB自训权重示例
+
+```bash
+ROOT=/path/to/focus_exp \
+METHOD=rediffuse \
+METADATA=/path/test.json \
+OUTPUT_ROOT=/path/outputs \
+REDIFFUSE_PYTHON=/path/to/envs/rediffuse38/bin/python \
+REDIFFUSE_CKPT=/path/to/checkpoints/best_val_loss.pt \
+REDIFFUSE_CHECKPOINT_MODE=metadata-rgb \
+CUDA_VISIBLE_GPU=0 \
+SAMPLING_STEPS=2000 \
+bash run_infer_metadata_v3.sh
+```
+
+日志必须打印：
+
+```text
+[REDIFFUSE] checkpoint_mode=...
+[REDIFFUSE] checkpoint=...
+[REDIFFUSE] python=...
+[REDIFFUSE] color_space=Y或RGB
+```
+
+---
+
+# 六、新增 Python 3.8 专用依赖文件
+
+当前普通：
+
+```text
+baselines/ReDiffuse/requirements.txt
+```
+
+包含不兼容Python 3.8的新版依赖。
+
+不要删除原文件，但新增：
+
+```text
+baselines/ReDiffuse/requirements-py38.txt
+```
+
+优先使用明确支持Python 3.8的版本。
+
+建议初始版本：
+
+```text
+numpy==1.24.4
+Pillow==10.4.0
+scipy==1.10.1
+matplotlib==3.7.5
+h5py==3.11.0
+scikit-image==0.19.2
+scikit-learn==1.1.3
+opencv-python==4.8.1.78
+tqdm==4.66.5
+PyYAML==6.0.1
+```
+
+PyTorch不要盲目固定到一个未经测试的版本。
+
+建议文档中区分：
+
+## CUDA版本由用户环境决定
+
+例如：
+
+```bash
+conda create -n rediffuse38 python=3.8.10 -y
+conda activate rediffuse38
+
+pip install \
+  torch==2.4.1 \
+  torchvision==0.19.1 \
+  --index-url https://download.pytorch.org/whl/cu121
+
+pip install -r requirements-py38.txt
+```
+
+如果服务器CUDA不是12.1，README明确要求选择匹配CUDA的PyTorch wheel。
+
+Codex必须在实际Python 3.8环境中执行：
+
+```bash
+pip install -r requirements-py38.txt
+```
+
+并记录成功或失败。
+
+不要只做静态判断。
+
+---
+
+# 七、保留并验证 B_Conv 字节码
+
+继续保留：
+
+```text
+baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
+```
+
+继续使用：
+
+```text
+prepare_official_bytecode.py
+```
+
+要求：
+
+1. CPython 3.8；
+2. magic number匹配；
+3. SHA256记录；
+4. 复制为运行时：
+
+```text
+Condition_Noise_Predictor/B_Conv.pyc
+```
+
+5. 实际导入；
+6. 打印模块路径。
+
+真实环境测试命令：
+
+```bash
+conda activate rediffuse38
+cd /path/to/focus_exp/baselines/ReDiffuse
+
+python prepare_official_bytecode.py
+```
+
+报告必须记录：
+
+```text
+Python版本：
+B_Conv源文件：
+B_Conv SHA256：
+pyc magic：
+实际导入路径：
+```
+
+---
+
+# 八、ReDiffuse官方checkpoint真实验证
+
+新增或完善脚本：
+
+```text
+baselines/ReDiffuse/test_official_checkpoint.py
+```
+
+功能：
+
+1. 运行 `prepare_official_bytecode.py`；
+2. 构造 `official-y` 模型：
+
+   * `in_channels=3`
+   * `out_channels=1`
+3. 加载：
+
+```text
+weights/model.pt
+```
+
+4. 使用：
+
+```python
+model.load_state_dict(state_dict, strict=True)
+```
+
+5. 输出：
+
+```text
+missing_keys=[]
+unexpected_keys=[]
+```
+
+6. 固定seed执行一个最小 forward；
+7. 使用一条metadata样本执行最小推理入口smoke。
+
+只有以下都通过才能标记官方模式可用：
+
+```text
+B_Conv import: PASS
+model construction: PASS
+strict checkpoint load: PASS
+forward: PASS
+metadata official-y inference: PASS
+```
+
+---
+
+# 九、修复验证过程污染训练随机状态
+
+处理：
+
+```text
+baselines/ImageFusion/FusionDiff/train.py
+baselines/ReDiffuse/train.py
+```
+
+当前问题：
+
+验证阶段调用：
+
+```python
+torch.manual_seed(...)
+torch.cuda.manual_seed_all(...)
+```
+
+但没有恢复训练前随机状态。
+
+推荐使用：
+
+```python
+from contextlib import contextmanager
+
+
+@contextmanager
+def preserve_rng_state():
+    python_state = random.getstate()
+    numpy_state = np.random.get_state()
+    torch_state = torch.get_rng_state()
+
+    cuda_state = None
+    if torch.cuda.is_available():
+        cuda_state = torch.cuda.get_rng_state_all()
+
+    try:
+        yield
+    finally:
+        random.setstate(python_state)
+        np.random.set_state(numpy_state)
+        torch.set_rng_state(torch_state)
+
+        if cuda_state is not None:
+            torch.cuda.set_rng_state_all(cuda_state)
+```
+
+验证调用：
+
+```python
+with preserve_rng_state():
+    random.seed(val_seed)
+    np.random.seed(val_seed)
+    torch.manual_seed(val_seed)
+
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(val_seed)
+
+    run_validation(...)
+```
+
+或者使用：
+
+```python
+with torch.random.fork_rng(...):
+```
+
+但必须同时保护 Python 和 NumPy RNG。
+
+要求：
+
+* 验证过程可复现；
+* 验证结束后训练随机状态完全恢复；
+* 后续epoch不会重复使用相同训练noise序列；
+* DataLoader shuffle随机性不被验证重置。
+
+---
+
+# 十、增加 RNG 回归测试
+
+新增测试：
+
+```text
+tests/test_validation_rng_preservation.py
+```
+
+测试逻辑：
+
+1. 固定随机种子；
+2. 生成训练前随机序列；
+3. 保存RNG状态；
+4. 执行验证函数；
+5. 验证后继续生成随机数；
+6. 与“不执行验证但恢复相同状态”的参考序列比较。
+
+至少检查：
+
+```text
+random.random()
+np.random.rand()
+torch.rand()
+torch.cuda.FloatTensor随机数（有CUDA时）
+```
+
+结果必须完全一致。
+
+---
+
+# 十一、修复 scheduler 保存顺序
+
+处理：
+
+```text
+baselines/ImageFusion/FusionDiff/train.py
+baselines/ReDiffuse/train.py
+baselines/diffusion_checkpoint.py
+```
+
+当前问题：
+
+checkpoint可能在：
+
+```python
+scheduler.step()
+```
+
+之前保存，导致resume后的scheduler比连续训练少一步。
+
+统一epoch末顺序：
+
+```text
+完成训练epoch
+→ 完成验证
+→ 更新best_val_loss
+→ scheduler.step()
+→ 保存checkpoint
+```
+
+checkpoint中的：
+
+```text
+epoch
+global_step
+scheduler
+optimizer
+best_val_loss
+```
+
+必须对应epoch结束后的完整状态。
+
+建议：
+
+```python
+if scheduler is not None:
+    scheduler.step()
+
+save_checkpoint(
+    epoch=epoch,
+    global_step=global_step,
+    best_val_loss=best_val_loss,
+    ...
+)
+```
+
+不要在保存后再执行 scheduler.step。
+
+---
+
+# 十二、恢复 best_val_loss
+
+checkpoint增加：
+
+```python
+"best_val_loss": float(best_val_loss)
+```
+
+resume时：
+
+```python
+best_val_loss = float(
+    checkpoint.get(
+        "best_val_loss",
+        float("inf"),
+    )
+)
+```
+
+日志打印：
+
+```text
+[RESUME] best_val_loss=...
+```
+
+如果旧checkpoint不存在该字段：
+
+```text
+[WARN] Legacy checkpoint has no best_val_loss; using infinity.
+```
+
+resume后不得让第一轮验证无条件覆盖历史best模型。
+
+---
+
+# 十三、明确 checkpoint 保存语义
+
+在：
+
+```text
+baselines/diffusion_checkpoint.py
+```
+
+写清楚：
+
+```text
+Checkpoint represents the complete state after:
+1. epoch training,
+2. validation,
+3. best metric update,
+4. scheduler step.
+```
+
+checkpoint至少包含：
+
+```python
+{
+    "format_version": 3,
+    "method": method_name,
+    "model": model.state_dict(),
+    "optimizer": optimizer.state_dict(),
+    "scheduler": scheduler.state_dict() if scheduler else None,
+    "epoch": epoch,
+    "global_step": global_step,
+    "best_val_loss": best_val_loss,
+    "config": config,
+    "data_contract": data_contract,
+    "random_state": {
+        "python": ...,
+        "numpy": ...,
+        "torch": ...,
+        "cuda": ...
+    }
+}
+```
+
+---
+
+# 十四、resume连续性测试
+
+为FusionDiff和ReDiffuse增加最小测试：
+
+1. 固定seed训练2步；
+2. 保存checkpoint；
+3. 记录：
+
+   * model参数；
+   * optimizer状态；
+   * scheduler状态；
+   * global_step；
+   * best_val_loss；
+   * 下一组随机数；
+4. 从checkpoint resume；
+5. 验证所有状态一致；
+6. 再训练一步；
+7. 与不中断连续训练路径比较。
+
+至少检查：
+
+```text
+global_step一致
+learning rate一致
+scheduler last_epoch一致
+best_val_loss一致
+下一组随机数一致
+```
+
+模型浮点结果允许按合理容差比较。
+
+---
+
+# 十五、更新 ReDiffuse README
+
+处理：
+
+```text
+baselines/ReDiffuse/README.md
+```
+
+删除或标记为历史内容的错误说明：
+
+* “不能使用pyc”；
+* “B_Conv只能等待源码”；
+* “metadata模式保持Y通道”；
+* “官方model.pt可以直接加载RGB模型”。
+
+改成当前真实方案：
+
+## 官方模式
+
+```text
+checkpoint-mode=official-y
+Python=3.8.10
+B_Conv=作者公开CPython 3.8字节码
+model=3输入1输出
+RGB输入转Y
+A色度恢复RGB
+```
+
+## 自训模式
+
+```text
+checkpoint-mode=metadata-rgb
+model=9输入3输出
+metadata RGB从头训练
+RGB推理
+只能加载带RGB data contract的自训checkpoint
+```
+
+明确写：
+
+```text
+Official-y and metadata-rgb checkpoints are structurally incompatible.
+```
+
+加入完整环境创建命令。
+
+---
+
+# 十六、更新总报告
+
+更新：
+
+```text
+CODEX_METADATA_TRAINING_REPORT.md
+```
+
+在顶部增加：
+
+```text
+Current status for commit <new hash>.
+Older status sections are historical and superseded.
+```
+
+ReDiffuse表格明确拆成两行：
+
+| Mode                   | Structure | Checkpoint        | Python      | Status |
+| ---------------------- | --------- | ----------------- | ----------- | ------ |
+| ReDiffuse official-y   | 3→1       | official model.pt | CPython 3.8 |        |
+| ReDiffuse metadata-rgb | 9→3       | self-trained RGB  | CPython 3.8 |        |
+
+还要记录：
+
+```text
+requirements-py38安装结果
+B_Conv导入结果
+官方checkpoint strict load结果
+official-y forward结果
+metadata-rgb optimizer step结果
+```
+
+---
+
+# 十七、更新训练脚本
+
+处理：
+
+```text
+run_train_metadata_v3.sh
+```
+
+ReDiffuse训练固定：
+
+```text
+REDIFFUSE_MODEL_MODE=metadata-rgb
+```
+
+启动命令增加：
+
+```bash
+--model-mode metadata-rgb
+```
+
+如果用户传：
+
+```text
+official-y
+```
+
+训练脚本应拒绝并说明：
+
+```text
+Official-y is provided for official checkpoint inference.
+The metadata supervised training pipeline uses metadata-rgb.
+```
+
+---
+
+# 十八、更新推理脚本
+
+处理：
+
+```text
+run_infer_metadata_v3.sh
+```
+
+增加：
+
+```bash
+REDIFFUSE_CHECKPOINT_MODE="${REDIFFUSE_CHECKPOINT_MODE:-official-y}"
+```
+
+允许：
+
+```text
+official-y
+metadata-rgb
+```
+
+检查组合：
+
+## official-y
+
+默认checkpoint：
+
+```text
+baselines/ReDiffuse/weights/model.pt
+```
+
+不要求data contract文件。
+
+## metadata-rgb
+
+必须是本项目完整checkpoint。
+
+必须检查data contract。
+
+禁止：
+
+```text
+official checkpoint + metadata-rgb
+metadata RGB checkpoint + official-y
+```
+
+---
+
+# 十九、不要做的事情
+
+1. 不再修改metadata字段。
+2. 不读取edit_image后两张。
+3. 不把focus map输入模型。
+4. 不把官方ReDiffuse改成RGB。
+5. 不把RGB自训ReDiffuse改成Y。
+6. 不让official-y与metadata-rgb自动互相兼容。
+7. 不使用strict=False。
+8. 不猜写B_Conv源码。
+9. 不删除官方pyc。
+10. 不使用不兼容Python3.8的依赖版本。
+11. 不让验证修改训练RNG。
+12. 不在scheduler.step之前保存epoch结束checkpoint。
+13. 不丢失best_val_loss。
+14. 不把模型初始化称为完整resume。
+15. 不运行长时间全量训练，只做smoke。
+
+---
+
+# 二十、必须执行的测试
+
+## ReDiffuse环境
+
+```bash
+conda create -n rediffuse38 python=3.8.10 -y
+conda activate rediffuse38
+pip install -r requirements-py38.txt
+```
+
+记录实际结果。
+
+## B_Conv
+
+```bash
+python prepare_official_bytecode.py
+```
+
+记录：
+
+* SHA256；
+* magic；
+* import路径。
+
+## official-y
+
+* strict load官方model.pt；
+* 一个forward；
+* 一条metadata推理；
+* 输出RGB PNG。
+
+## metadata-rgb
+
+* 一个batch forward；
+* 一个optimizer step；
+* checkpoint保存；
+* resume；
+* 一条metadata推理。
+
+## RNG
+
+* FusionDiff验证不污染RNG；
+* ReDiffuse验证不污染RNG。
+
+## resume
+
+* scheduler连续；
+* global_step连续；
+* best_val_loss连续；
+* RNG连续。
+
+---
+
+# 二十一、最终验收标准
+
+完成后必须满足：
+
+1. ReDiffuse official-y和metadata-rgb彻底分离。
+2. 官方model.pt只加载到3→1模型。
+3. 自训RGB checkpoint只加载到9→3模型。
+4. official-y完成Y推理和A色度恢复。
+5. metadata-rgb保持RGB训练/推理。
+6. Python 3.8 requirements实际可安装。
+7. B_Conv实际导入成功。
+8. 官方checkpoint strict load通过或明确失败日志。
+9. 验证不再污染训练RNG。
+10. scheduler状态与epoch保存边界一致。
+11. best_val_loss可保存并恢复。
+12. resume与连续训练最小测试一致。
+13. README与代码一致。
+14. 一键训练/推理脚本正确传递模式。
+15. 四图metadata仍只取前两张。
+16. 所有未验证项目明确写未验证。
+
+完成后请输出：
+
+1. 修改文件列表；
+2. 每个文件修改摘要；
+3. ReDiffuse official-y数据流；
+4. ReDiffuse metadata-rgb数据流；
+5. Python 3.8环境创建命令；
+6. requirements-py38安装结果；
+7. B_Conv SHA256、magic和导入路径；
+8. 官方model.pt strict load结果；
+9. FusionDiff RNG测试结果；
+10. ReDiffuse RNG测试结果；
+11. scheduler/resume连续性测试结果；
+12. official-y推理命令；
+13. metadata-rgb训练、resume和推理命令；
+14. 未解决问题；
+15. 新提交哈希。
+
+请直接修改代码并执行能够执行的测试，不要只返回建议。
