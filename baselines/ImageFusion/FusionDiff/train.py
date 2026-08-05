@@ -3,6 +3,8 @@ import torch
 from tqdm import tqdm
 import json
 import argparse
+import random
+import numpy as np
 from torch.utils.data import DataLoader
 from torch.optim import lr_scheduler
 
@@ -11,6 +13,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from metadata_training import warn_split_overlap
+from diffusion_checkpoint import (rgb_contract, load_model_init, resume_training,
+                                  save_checkpoint)
 from Diffusion import GaussianDiffusion
 from Condition_Noise_Predictor.UNet import NoisePred
 from utils import tensorboard_writer, logger, save_model
@@ -22,6 +26,8 @@ def train(config_path, args=None):
     timestr = time.strftime('%Y%m%d_%H%M%S')
     with open(config_path, 'r', encoding='utf-8') as f:
         config = json.load(f)
+    contract = rgb_contract("FusionDiff", config["diffusion_model"]["T"])
+    Path("data_contract.json").write_text(json.dumps(contract, indent=2), encoding="utf-8")
     if args:
         Path("train_manifest.json").write_text(
             json.dumps({"arguments": vars(args), "config": str(Path(config_path).resolve())}, indent=2),
@@ -45,6 +51,8 @@ def train(config_path, args=None):
         val_dataset = MetadataMFI_Dataset(args.val_metadata, "valid", val_cfg.get("resize", train_resize),
                                           val_cfg.get("imgSize", train_imgSize), args.seed, 0, args.max_samples)
         warn_split_overlap(train_dataset, val_dataset, args.fail_on_split_overlap)
+        print("[FusionDiff] dataset_format=metadata\n[FusionDiff] color_space=RGB\n"
+              "[FusionDiff] input_order=A,B\n[FusionDiff] target=image")
     else:
         train_dataset = MFI_Dataset(train_datasePath, phase=train_phase, use_dataTransform=train_use_dataTransform,
                                     resize=train_resize, imgSzie=train_imgSize)
@@ -88,17 +96,8 @@ def train(config_path, args=None):
     StepLR_size = config["optimizer"]["StepLR_size"]
     StepLR_gamma = config["optimizer"]["StepLR_gamma"]
     optimizer = torch.optim.AdamW(model.parameters(), lr=init_lr)
-    if args and args.resume:
-        resume_path = Path(args.resume).resolve()
-        if not resume_path.is_file():
-            raise FileNotFoundError(f"resume checkpoint not found: {resume_path}")
-        checkpoint = torch.load(resume_path, map_location=device)
-        model.load_state_dict(checkpoint.get("model", checkpoint))
-        if isinstance(checkpoint, dict) and "optimizer" in checkpoint:
-            optimizer.load_state_dict(checkpoint["optimizer"])
-        print(f"resumed checkpoint: {resume_path}")
-    if use_lr_scheduler:
-        learningRate_scheduler = lr_scheduler.StepLR(optimizer, step_size=StepLR_size, gamma=StepLR_gamma)
+    learningRate_scheduler = (lr_scheduler.StepLR(optimizer, step_size=StepLR_size, gamma=StepLR_gamma)
+                              if use_lr_scheduler else None)
 
     # diffusion model
     T = config["diffusion_model"]["T"]
@@ -126,6 +125,14 @@ def train(config_path, args=None):
     save_model_epoch_step = config["hyperParameter"]["save_model_epoch_step"]
     train_step_sum = len(train_dataloader)
     num_train_step = 0
+    if args and args.init_checkpoint:
+        load_model_init(args.init_checkpoint, model, "FusionDiff", bool(args.allow_legacy_checkpoint), device)
+        print(f"initialized model only: {Path(args.init_checkpoint).resolve()}")
+    if args and args.resume:
+        start_epoch, num_train_step, _ = resume_training(
+            args.resume, model, optimizer, learningRate_scheduler, "FusionDiff", device)
+        print(f"fully resumed: {Path(args.resume).resolve()} epoch={start_epoch} step={num_train_step}")
+    best_val_loss = float("inf")
 
     for epoch in range(start_epoch, epochs):
         # train
@@ -172,17 +179,32 @@ def train(config_path, args=None):
             if args and args.max_train_steps >= 0 and num_train_step >= args.max_train_steps:
                 break
 
+        val_average = None
         if val_dataloader is not None:
             model.eval()
             torch.manual_seed(args.seed)
+            val_sum, val_count = 0.0, 0
             with torch.no_grad():
                 for val_images in val_dataloader:
                     va, vb, vg = (val_images[k].to(device) for k in ("a", "b", "target"))
-                    vt = torch.zeros((vg.shape[0],), dtype=torch.long, device=device)
+                    vt = (torch.zeros((vg.shape[0],), dtype=torch.long, device=device)
+                          if args.validation_mode == "smoke" else
+                          torch.randint(0, T, (vg.shape[0],), device=device))
                     val_loss = diffusion.train_losses(model, va, vb, vg, vt, concat_type, loss_scale)
                     val_loss_value = float(val_loss.detach().item())
-                    print(f"validation loss: {val_loss_value / loss_scale:.6f}")
-                    break
+                    val_sum += val_loss_value; val_count += 1
+                    if args.validation_mode == "smoke": break
+            if val_count:
+                val_average = val_sum / val_count
+                print(f"validation loss: {val_average / loss_scale:.6f} samples={val_count}")
+        checkpoint_args = dict(method="FusionDiff", model=model, optimizer=optimizer,
+                               scheduler=learningRate_scheduler, epoch=epoch,
+                               global_step=num_train_step, config=config, contract=contract)
+        save_checkpoint("checkpoints/latest.pt", **checkpoint_args)
+        save_checkpoint(f"checkpoints/epoch_{epoch:04d}.pt", **checkpoint_args)
+        if args.validation_mode != "smoke" and val_average is not None and val_average < best_val_loss:
+            best_val_loss = val_average
+            save_checkpoint("checkpoints/best_val_loss.pt", **checkpoint_args)
         if args and args.max_train_steps >= 0 and num_train_step >= args.max_train_steps:
             writer.close()
             print("training smoke limit reached")
@@ -196,7 +218,7 @@ def train(config_path, args=None):
             save_model(model, epoch, timestr)
 
         # update learning rate
-        if use_lr_scheduler:
+        if learningRate_scheduler is not None:
             learningRate_scheduler.step()
         writer.add_scalar('aver_loss_epoch: ', aver_loss, epoch)
         log.write("\n")
@@ -218,9 +240,14 @@ if __name__ == '__main__':
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-train-steps", type=int, default=-1)
     parser.add_argument("--resume")
+    parser.add_argument("--init-checkpoint")
+    parser.add_argument("--allow-legacy-checkpoint", type=int, choices=(0, 1), default=0)
+    parser.add_argument("--validation-mode", choices=("smoke", "loss", "sample"), default="loss")
+    parser.add_argument("--sample-val-every", type=int, default=10)
+    parser.add_argument("--sample-val-count", type=int, default=4)
     parser.add_argument("--fail-on-split-overlap", type=int, choices=(0, 1), default=0)
     parsed = parser.parse_args()
     torch.manual_seed(parsed.seed)
-    import random
     random.seed(parsed.seed)
+    np.random.seed(parsed.seed)
     train(parsed.config, parsed)

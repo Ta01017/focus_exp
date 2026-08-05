@@ -26,6 +26,21 @@ def _tensor(image, channels, value_range):
     return tensor.mul(2).sub(1) if value_range == "minus_one_one" else tensor
 
 
+def pil_rgb_to_tensor(image, value_range="minus_one_one"):
+    """Canonical metadata RGB CHW conversion used by train/val/infer."""
+    return _tensor(image.convert("RGB"), 3, value_range)
+
+
+def normalized_tensor_to_rgb(tensor):
+    """Convert CHW or 1xCHW [-1,1] tensor to a PIL RGB image."""
+    from PIL import Image
+    value = tensor.detach().cpu()
+    if value.ndim == 4:
+        value = value[0]
+    array = ((value.clamp(-1, 1).numpy().transpose(1, 2, 0) + 1) * 127.5).round().astype(np.uint8)
+    return Image.fromarray(array, "RGB")
+
+
 class MetadataFusionDataset(Dataset):
     """A/B/GT metadata adapter with synchronized model-specific geometry."""
 

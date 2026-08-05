@@ -1,5 +1,8 @@
 __pycache__/
 *.py[cod]
+!baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/
+!baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
+baselines/ReDiffuse/Condition_Noise_Predictor/B_Conv.pyc
 *$py.class
 .pytest_cache/
 outputs/

@@ -47,4 +47,6 @@ baselines\DSIFT-MFIF\run_metadata_dsift.bat baselines\smoke_metadata\metadata.js
 
 IFCNN 源码中没有完整官方训练入口，因此没有编造监督训练流程；可复用公共 `MetadataFusionDataset`，但可靠范围仅为官方 checkpoint 推理。DSIFT 是非学习 MATLAB 方法。ZMFF 是逐样本 zero-shot 优化，两者都没有监督训练入口。
 
-Linux 一键入口为根目录 `run_train_metadata_v2.sh` 与 `run_infer_metadata_v2.sh`。SwinFusion 训练必须设置独立 `OUTPUT_ROOT/TAG` 和显式 `INIT_MODE=scratch|official|resume`。FusionDiff/ReDiffuse 正式推理固定使用训练配置的 `T=2000`；未实现验证过的 DDIM/timestep respacing，不能用修改 `T` 模拟少步采样。
+正式 RGB 一键入口为根目录 `run_train_metadata_v3.sh` 与 `run_infer_metadata_v3.sh`。SwinFusion metadata scratch/resume 使用 RGB；`official` 模式的作者权重契约未知，只用于明确标注的兼容性检查。FusionDiff/ReDiffuse 使用 RGB `[-1,1]`、完整 checkpoint 和彼此分离的 `--init-checkpoint`/`--resume`。正式扩散推理固定 `T=2000`；未实现验证过的 DDIM/timestep respacing，不能通过修改 `T` 冒充少步采样。
+
+ReDiffuse 必须在独立 CPython 3.8 环境先运行 `python3.8 baselines/ReDiffuse/prepare_official_bytecode.py`。保留的作者字节码为 `Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc`，SHA256 `62fb37e52d4c4638daed9e6b5e4bf7d5cc3f337811159b17b9246ff8d67d5fa1`；运行时副本 `Condition_Noise_Predictor/B_Conv.pyc` 不提交。

@@ -91,11 +91,13 @@ def parse(opt_path, is_train=True):
     configured_gpu_list = ','.join(str(x) for x in opt['gpu_ids'])
     external_cuda_visible = os.environ.get('CUDA_VISIBLE_DEVICES')
     if external_cuda_visible:
-        print('[GPU] Respect externally supplied CUDA_VISIBLE_DEVICES=' + external_cuda_visible)
+        visible = [item.strip() for item in external_cuda_visible.split(',') if item.strip()]
+        opt['gpu_ids'] = list(range(len(visible)))
+        print('[GPU] CUDA_VISIBLE_DEVICES=' + external_cuda_visible)
     else:
         os.environ['CUDA_VISIBLE_DEVICES'] = configured_gpu_list
         print('[GPU] Set CUDA_VISIBLE_DEVICES from config=' + configured_gpu_list)
-    print('[GPU] Effective CUDA_VISIBLE_DEVICES=' + os.environ['CUDA_VISIBLE_DEVICES'])
+    print('[GPU] logical_gpu_ids=' + str(opt['gpu_ids']))
 
     # ----------------------------------------
     # default setting for distributeddataparallel
@@ -105,7 +107,7 @@ def parse(opt_path, is_train=True):
     if 'dist' not in opt:
         opt['dist'] = False
     opt['num_gpu'] = len(opt['gpu_ids'])
-    print('number of GPUs is: ' + str(opt['num_gpu']))
+    print('[GPU] num_gpu=' + str(opt['num_gpu']))
 
     # ----------------------------------------
     # default setting for perceptual loss

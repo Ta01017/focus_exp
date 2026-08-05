@@ -32,7 +32,8 @@ class ModelPlain(ModelBase):
         # ------------------------------------
         # Define Tensorboard 
         # ------------------------------------
-        tensorboard_path = os.path.join(self.opt['path']['root'], 'Tensorboard')
+        tensorboard_path = self.opt['path'].get(
+            'tensorboard', os.path.join(self.opt['path']['task'], 'logs', 'tensorboard'))
         os.makedirs(tensorboard_path, exist_ok=True)
         self.writer = SummaryWriter(tensorboard_path)
 

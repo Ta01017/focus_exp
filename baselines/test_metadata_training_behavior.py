@@ -47,7 +47,7 @@ def test_rediffuse_train_crop_changes_and_is_synchronized(tmp_path):
     outputs = [dataset[0] for _ in range(4)]
     for sample in outputs:
         _assert_synced(sample)
-        assert tuple(sample["a"].shape) == (1, 128, 128)
+        assert tuple(sample["a"].shape) == (3, 128, 128)
     assert len({sample["a"].numpy().tobytes() for sample in outputs}) > 1
 
 
@@ -57,7 +57,7 @@ def test_rediffuse_validation_uses_valid_geometry_and_is_deterministic(tmp_path)
     dataset = MetadataMFI_Dataset(metadata, "valid", False, -1, seed=19)
     first, second = dataset[0], dataset[0]
     _assert_synced(first)
-    assert tuple(first["a"].shape) == (1, 320, 320)
+    assert tuple(first["a"].shape) == (3, 320, 320)
     assert (first["a"] == second["a"]).all()
     source = (ROOT / "ReDiffuse" / "train.py").read_text(encoding="utf-8")
     assert 'config["dataset"].get("valid", config["dataset"]["train"])' in source

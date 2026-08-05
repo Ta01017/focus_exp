@@ -66,6 +66,11 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
 
     args = parser.parse_args()
     opt = option.parse(args.opt, is_train=True)
+    if args.init_mode in ('scratch', 'resume'):
+        opt['n_channels'] = 3
+        opt['netG']['in_chans'] = 3
+        for dataset_opt in opt['datasets'].values():
+            dataset_opt['n_channels'] = 3
     opt['dist'] = args.dist
     if bool(args.train_metadata) != bool(args.val_metadata):
         raise ValueError('--train-metadata and --val-metadata must be provided together')
@@ -192,6 +197,16 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
 
     model = define_Model(opt)
     model.init_train()
+    if args.init_mode == 'resume':
+        state_path = Path(args.resume_dir) / 'checkpoints' / 'training_state.pt'
+        if state_path.is_file():
+            state = torch.load(state_path, map_location='cpu')
+            for scheduler, scheduler_state in zip(model.schedulers, state.get('schedulers', [])):
+                scheduler.load_state_dict(scheduler_state)
+            if int(state.get('current_step', current_step)) != current_step:
+                raise ValueError('resume training_state step does not match checkpoint filenames')
+        else:
+            raise FileNotFoundError(f'resume scheduler state missing: {state_path}')
     # if opt['rank'] == 0:
     #     logger.info(model.info_network())
     #     logger.info(model.info_params())
@@ -253,6 +268,9 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
                 save_path = os.path.join(save_dir, save_filename)
                 logger.info('Saving the model. Save path is:{}'.format(save_path))
                 model.save(current_step)
+                torch.save({'current_step': current_step,
+                            'schedulers': [scheduler.state_dict() for scheduler in model.schedulers]},
+                           Path(opt['path']['models']) / 'training_state.pt')
 
             # -------------------------------
             # 6) testing

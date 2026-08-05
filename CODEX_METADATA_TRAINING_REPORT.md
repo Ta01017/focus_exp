@@ -115,3 +115,37 @@ IFCNN 未进入加载（缺 `torchvision`）。ReDiffuse 未进入严格 state l
 3. 当前环境缺 `torchvision`、MATLAB 和 CUDA，无法完成相应真实模型 smoke。
 4. SwinFusion 官方 `fusion_loss_mff` 内部使用 `.cuda()`，CPU model step 不可运行；未修改该论文 loss。
 5. 正式 train/val 必须使用不同 metadata；公共 smoke 为测试同步逻辑而故意复用同一文件，启动时会打印重叠警告。
+
+## v3 metadata RGB 修复（2026-08-05）
+
+统一契约为 `GT=image`、`A=edit_image[0]`、`B=edit_image[1]`，忽略 `edit_image[2:]`。公共读取层返回 PIL RGB；SwinFusion formal metadata、FusionDiff、ReDiffuse 的训练/验证/推理均保持 RGB。FusionDiff/ReDiffuse 使用 `[-1,1]`，保存时按 CHW RGB 转 HWC RGB PNG，不进行 RGB/BGR 交换。checkpoint 内含模型、optimizer、scheduler、epoch、global_step、配置、data_contract 及 Python/NumPy/Torch/CUDA RNG；旧权重默认拒绝，初始化和完整恢复为两个参数。
+
+| Method | Metadata RGB train | Metadata RGB infer | Model forward | Optimizer step | Checkpoint load | Full resume | Sampling | Ready | Blocker |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SwinFusion | 是（scratch/resume） | 是 | PASS（既有真实 harness） | PASS（既有真实 harness） | official strict PASS（兼容模式） | 已实现；本轮静态/单测 | 未执行 | 部分 | 当前环境无 CUDA；official 颜色契约未知 |
+| FusionDiff | 是 | 是 | PASS（既有真实 harness） | PASS（既有真实 harness） | RGB full checkpoint PASS | PASS | 2000 步未执行 | 是（需训练权重） | 正式采样耗时高 |
+| ReDiffuse | 是 | 是 | 未验证 | 未验证 | 自训 full checkpoint公共逻辑 PASS；official 未验证 | 公共逻辑 PASS | 未执行 | 否 | 当前没有 CPython 3.8，不能导入官方 pyc |
+
+SwinFusion 将外部 `CUDA_VISIBLE_DEVICES=3,5` 映射为程序内逻辑 `[0,1]`，不会覆盖外部设置；输出统一隔离到 run 目录的 `checkpoints/`、`logs/`、`logs/tensorboard/`、`validation/`。正式 RGB scratch/resume 与颜色契约未知的 official 兼容模式分开。
+
+ReDiffuse 的 `B_Conv` 来自作者发布的 CPython 3.8 字节码，未猜写源码，也未替换为普通卷积。源文件：`baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc`；SHA256：`62fb37e52d4c4638daed9e6b5e4bf7d5cc3f337811159b17b9246ff8d67d5fa1`；magic：`550d0d0a`。准备脚本验证解释器、magic 和导入后复制到 `Condition_Noise_Predictor/B_Conv.pyc`。由于本机只有 CPython 3.12，实际导入路径和 official checkpoint strict load均未验证。
+
+本轮实际测试：
+
+```text
+pytest -q baselines/test_metadata_v3.py baselines/test_metadata_training_behavior.py baselines/test_metadata_v2.py
+16 passed
+bash -n run_train_metadata_v3.sh run_infer_metadata_v3.sh
+PASS
+python3 -m py_compile <v3 修改的 Python 文件>
+PASS
+python3.8 baselines/ReDiffuse/prepare_official_bytecode.py
+未执行：系统无 python3.8；用当前解释器运行会按预期明确拒绝
+```
+
+新增一键用法示例：
+
+```bash
+METHOD=all TRAIN_META=/data/train.json VAL_META=/data/val.json OUTPUT_ROOT=/runs/train TAG=rgb_v3 bash run_train_metadata_v3.sh
+METHOD=all METADATA=/data/test.json OUTPUT_ROOT=/runs/infer SWINFUSION_CKPT=/runs/swin/checkpoints/1000_G.pth FUSIONDIFF_CKPT=/runs/fd/checkpoints/latest.pt REDIFFUSE_CKPT=/runs/rd/checkpoints/latest.pt bash run_infer_metadata_v3.sh
+```

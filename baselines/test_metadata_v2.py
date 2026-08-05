@@ -26,8 +26,8 @@ def test_sampling_steps_reject_fake_respacing():
         validated_sampling_steps(config, 10)
 
 
-def test_rediffuse_missing_source_is_clear():
-    with pytest.raises(RuntimeError, match="Do not reconstruct this file by guessing"):
+def test_rediffuse_requires_official_python_runtime():
+    with pytest.raises(RuntimeError, match="requires CPython 3.8"):
         require_official_b_conv()
 
 
