@@ -1,0 +1,1552 @@
+请继续检查、修改并测试仓库：
+
+```text
+D:\focus_exp
+```
+
+当前基准提交：
+
+```text
+0acfc89df31acc218651709793efdf92d239b54e
+```
+
+仓库地址：
+
+```text
+https://github.com/Ta01017/focus_exp
+```
+
+本轮目标是完成六个 MFIF baseline 的 metadata 数据兼容，并使可训练方法支持：
+
+1. metadata.json 从头训练；
+2. metadata.json 验证；
+3. metadata.json 推理；
+4. 双图输入；
+5. `edit_image` 有四张或更多时只取前两张；
+6. 训练与推理使用一致的 RGB 数据契约；
+7. 一键训练和一键推理；
+8. ReDiffuse 使用作者公开的 CPython 3.8 `B_Conv` 字节码，不猜写源码。
+
+当前暂时不要求输出恢复到原图分辨率。
+
+不要只修改 Dataset 后停止，必须确认训练循环、验证循环和推理入口真正接入 metadata 数据。
+
+---
+
+# 一、绝对不能改变的 metadata 数据契约
+
+metadata.json 顶层是 list，每个样本可能为：
+
+```json
+{
+  "image": "images/000001_target.png",
+  "edit_image": [
+    "images/000001_a.png",
+    "images/000001_b.png",
+    "images/000001_focus_a.png",
+    "images/000001_focus_b.png"
+  ],
+  "prompt": "Fuse two images with different focus into a single all-in-focus image.",
+  "seed": 123,
+  "source_dataset": "custom_dataset",
+  "source_index": 1
+}
+```
+
+统一解释：
+
+```text
+GT = image
+A  = edit_image[0]
+B  = edit_image[1]
+```
+
+必须遵守：
+
+1. `edit_image` 至少包含两张。
+2. `edit_image[0]` 是 A。
+3. `edit_image[1]` 是 B。
+4. `edit_image[2:]` 永远忽略。
+5. 不得把 focus map 输入这些 baseline。
+6. 四图或更多图时，只能读取前两张。
+7. 推理时 `image` 可以不存在。
+8. 训练和验证时 `image` 必须存在。
+9. 训练时不能用 A 或 B 冒充 GT。
+10. 相对路径以 metadata.json 所在目录为基准。
+11. 支持 Windows 路径、Linux 路径、相对路径。
+12. 支持 UTF-8 和 UTF-8 BOM。
+13. 不根据文件名猜测 A、B、GT。
+14. 后两张 focus 图即使路径不存在，也不应影响运行，因为它们必须完全不解析、不检查、不打开。
+
+---
+
+# 二、统一使用 RGB 数据契约
+
+本项目所有 metadata 训练和 metadata 推理统一使用 RGB：
+
+```text
+通道0 = R
+通道1 = G
+通道2 = B
+```
+
+图像读取统一遵循：
+
+```python
+Image.open(path)
+ImageOps.exif_transpose(image)
+image.convert("RGB")
+```
+
+训练和推理必须保持：
+
+* 相同通道顺序；
+* 相同数值范围；
+* 相同 normalization；
+* 相同 A/B 条件排列；
+* 相同输出反归一化；
+* 输出以 RGB PNG 保存。
+
+禁止：
+
+```python
+image[..., ::-1]
+```
+
+禁止：
+
+```python
+cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+```
+
+禁止为了兼容作者旧目录 Dataset，将 metadata 数据转成 BGR。
+
+本项目的正式 checkpoint 均来自 metadata RGB 训练链路，并配套 metadata RGB 推理链路。
+
+如果某个作者官方 checkpoint 的颜色契约不明确：
+
+* 可以进行兼容性诊断；
+* 不得静默混用；
+* 不得称作本项目 RGB 重训权重；
+* 正式实验优先使用 metadata RGB 从头训练所得 checkpoint。
+
+---
+
+# 三、公共 metadata 模块
+
+检查并完善：
+
+```text
+D:\focus_exp\baselines\metadata_dataset.py
+D:\focus_exp\baselines\metadata_training.py
+D:\focus_exp\baselines\metadata_smoke_common.py
+```
+
+## 1. 公共读取接口
+
+至少提供：
+
+```python
+load_metadata(...)
+resolve_portable_path(...)
+inspect_item_paths(...)
+prepare_item(...)
+get_sample_id(...)
+validate_training_item(...)
+```
+
+## 2. 纯路径检查
+
+`inspect_item_paths()` 只能解析 JSON 和路径字符串，不能打开图片。
+
+返回：
+
+```python
+{
+    "index": index,
+    "sample_id": sample_id,
+    "a_path": a_path,
+    "b_path": b_path,
+    "gt_path": gt_path,
+    "source_index": source_index,
+}
+```
+
+重叠检查不能调用 PIL，不能解码整个训练集。
+
+## 3. 图像读取
+
+`prepare_item()` 才真正读取：
+
+* A；
+* B；
+* GT。
+
+公共层返回 PIL RGB 和完整元信息，不在公共层强制某个模型特有的 normalization。
+
+## 4. 模式
+
+支持：
+
+```text
+mode=infer
+mode=train
+mode=val
+```
+
+规则：
+
+* infer：GT 可选；
+* train：GT 必须存在；
+* val：GT 必须存在。
+
+## 5. 同步预处理
+
+同一个样本的 A、B、GT 必须使用同一组：
+
+* resize；
+* crop；
+* flip；
+* rotation；
+* padding。
+
+禁止分别执行三个随机 transform。
+
+训练增强：
+
+* 每次访问或每个 epoch 可以变化；
+* A/B/GT 保持同步；
+* 支持可复现 seed。
+
+验证增强：
+
+* 完全确定；
+* 同一样本重复读取结果一致。
+
+建议 Dataset 支持：
+
+```python
+dataset.set_epoch(epoch)
+```
+
+训练 seed 可基于：
+
+```python
+seed + epoch * 1000003 + index * 97 + worker_seed
+```
+
+验证 seed 固定为：
+
+```python
+seed + index
+```
+
+## 6. 尺寸策略
+
+当前不要求恢复原图大小。
+
+允许各模型保留原始训练分辨率、patch size 和预处理。
+
+但 A、B、GT必须同步变换，处理后尺寸必须一致。
+
+增加：
+
+```text
+--size-policy error
+--size-policy resize_all_to_a
+--size-policy center_crop_common
+```
+
+默认：
+
+```text
+error
+```
+
+如果模型本身固定 resize 到训练尺寸，可以在验证原始几何关系后统一 resize。
+
+---
+
+# 四、各方法支持范围
+
+| Method     | Metadata推理 | Metadata监督训练 | 处理方式                          |
+| ---------- | ---------: | -----------: | ----------------------------- |
+| DSIFT      |          是 |          不适用 | MATLAB传统算法                    |
+| IFCNN      |          是 |   仅当存在可信训练入口 | 官方权重推理为主                      |
+| SwinFusion |          是 |            是 | metadata RGB训练/验证             |
+| ZMFF       |          是 |          不适用 | 每样本zero-shot优化                |
+| FusionDiff |          是 |            是 | metadata RGB从头训练              |
+| ReDiffuse  |          是 |            是 | metadata RGB从头训练，B_Conv用官方pyc |
+
+不要为 DSIFT 或 ZMFF 虚构普通监督训练。
+
+不要在 IFCNN 官方仓库没有完整训练入口的情况下，自行编造一套训练协议并声称是官方实现。
+
+---
+
+# 五、SwinFusion 修复要求
+
+处理：
+
+```text
+D:\focus_exp\baselines\SwinFusion
+```
+
+只处理 Multi-Focus Fusion 路线，不得误用其他任务配置。
+
+## 1. Path 导入
+
+确认：
+
+```python
+from pathlib import Path
+```
+
+已经加入所有使用 `Path` 的文件。
+
+执行：
+
+```bash
+python -m py_compile baselines/SwinFusion/main_train_swinfusion.py
+```
+
+## 2. GPU环境变量
+
+外部设置：
+
+```bash
+CUDA_VISIBLE_DEVICES=1,2,3
+```
+
+时，程序不得覆盖。
+
+在配置解析中：
+
+```python
+external = os.environ.get("CUDA_VISIBLE_DEVICES")
+```
+
+如果外部存在，则映射为内部逻辑卡：
+
+```python
+visible = [
+    item.strip()
+    for item in external.split(",")
+    if item.strip()
+]
+
+opt["gpu_ids"] = list(range(len(visible)))
+opt["num_gpu"] = len(visible)
+```
+
+例如：
+
+```text
+外部物理卡：1,2,3
+内部逻辑卡：0,1,2
+```
+
+如果外部是：
+
+```text
+CUDA_VISIBLE_DEVICES=2
+```
+
+内部必须为：
+
+```python
+gpu_ids = [0]
+num_gpu = 1
+```
+
+日志打印：
+
+```text
+[GPU] CUDA_VISIBLE_DEVICES=1,2,3
+[GPU] logical_gpu_ids=[0,1,2]
+[GPU] num_gpu=3
+```
+
+## 3. 三种初始化模式
+
+保留并完整实现：
+
+```text
+--init-mode scratch
+--init-mode official
+--init-mode resume
+```
+
+### scratch
+
+* 随机初始化模型；
+* 不加载任何旧权重；
+* 不加载 optimizer；
+* step 从 0 开始。
+
+### official
+
+* 只加载指定官方 G/E 模型权重；
+* 不加载旧 optimizer；
+* step 从 0 开始；
+* 新结果写入新输出目录。
+
+### resume
+
+* 加载当前实验模型；
+* 加载 optimizer；
+* 恢复 step；
+* 恢复 scheduler 或相关训练状态；
+* 继续写入当前实验目录。
+
+禁止自动扫描官方模型目录并静默选择最新权重。
+
+## 4. 输出隔离
+
+所有自有训练结果必须写入：
+
+```text
+<OUTPUT_ROOT>/SwinFusion/<TAG>/
+```
+
+结构：
+
+```text
+checkpoints/
+logs/
+logs/tensorboard/
+validation/
+options_resolved.json
+command.txt
+data_contract.json
+```
+
+不得污染：
+
+```text
+Model/Multi_Focus_Fusion/.../models
+```
+
+TensorBoard不得写入公共目录。
+
+应使用：
+
+```python
+opt["path"]["tensorboard"] = (
+    Path(output_dir) / "logs" / "tensorboard"
+)
+```
+
+## 5. metadata训练
+
+真正接入：
+
+```text
+--train-metadata
+--val-metadata
+```
+
+确认训练循环迭代 metadata Dataset，而不是仍读取原始目录。
+
+A、B、GT同步预处理。
+
+注意：如果保留官方 MFF loss，而不是 GT loss，必须明确记录：
+
+```text
+GT用于验证配对，不作为官方MFF训练损失的监督目标。
+```
+
+不得把这种训练方式描述成 GT监督训练。
+
+## 6. 测试
+
+至少执行：
+
+* Dataset smoke；
+* 单 batch forward；
+* 一个 optimizer step；
+* validation forward；
+* scratch smoke；
+* official strict load；
+* resume save/load；
+* 单卡和多卡逻辑映射；
+* TensorBoard输出隔离。
+
+---
+
+# 六、FusionDiff 完整修改
+
+处理：
+
+```text
+D:\focus_exp\baselines\ImageFusion\FusionDiff
+```
+
+## 1. RGB训练和推理
+
+metadata Dataset固定：
+
+```text
+A = edit_image[0]，RGB
+B = edit_image[1]，RGB
+GT = image，RGB
+```
+
+训练 tensor 与推理 tensor必须使用完全相同的通道顺序和 normalization。
+
+如果当前约定为：
+
+```text
+[0,1] → [-1,1]
+```
+
+则训练和推理都保持。
+
+输出：
+
+```text
+RGB tensor
+→ clamp
+→ 反归一化
+→ HWC RGB
+→ PIL PNG
+```
+
+## 2. 数据契约
+
+每次训练保存：
+
+```text
+data_contract.json
+```
+
+至少包括：
+
+```json
+{
+  "method": "FusionDiff",
+  "dataset_format": "metadata",
+  "color_space": "RGB",
+  "input_a": "edit_image[0]",
+  "input_b": "edit_image[1]",
+  "target": "image",
+  "ignored_edit_images": "edit_image[2:]",
+  "normalization": "[-1, 1]",
+  "diffusion_steps": 2000
+}
+```
+
+训练启动打印：
+
+```text
+[FusionDiff] dataset_format=metadata
+[FusionDiff] color_space=RGB
+[FusionDiff] input_order=A,B
+[FusionDiff] target=image
+```
+
+## 3. 完整checkpoint
+
+保存格式：
+
+```python
+checkpoint = {
+    "format_version": 2,
+    "method": "FusionDiff",
+    "model": model.state_dict(),
+    "optimizer": optimizer.state_dict(),
+    "scheduler": (
+        scheduler.state_dict()
+        if scheduler is not None
+        else None
+    ),
+    "epoch": int(epoch),
+    "global_step": int(global_step),
+    "config": config,
+    "data_contract": data_contract,
+    "random_state": {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+        "cuda": (
+            torch.cuda.get_rng_state_all()
+            if torch.cuda.is_available()
+            else None
+        )
+    }
+}
+```
+
+保存：
+
+```text
+latest.pt
+best_val_loss.pt
+epoch_XXXX.pt
+```
+
+## 4. init与resume分开
+
+增加：
+
+```text
+--init-checkpoint
+--resume
+```
+
+### init-checkpoint
+
+* 只加载模型权重；
+* 不加载 optimizer；
+* 不恢复 epoch；
+* 不恢复 global step。
+
+### resume
+
+必须恢复：
+
+* model；
+* optimizer；
+* scheduler；
+* epoch；
+* global step；
+* Python随机状态；
+* NumPy随机状态；
+* PyTorch随机状态；
+* CUDA随机状态。
+
+恢复：
+
+```python
+start_epoch = checkpoint["epoch"] + 1
+global_step = checkpoint["global_step"]
+```
+
+旧纯 state_dict 只能作为 init，不能称为 resume。
+
+## 5. checkpoint契约检查
+
+加载完整 checkpoint 时检查：
+
+```text
+dataset_format=metadata
+color_space=RGB
+```
+
+如果不匹配，默认拒绝加载。
+
+推理时旧 checkpoint 没有契约信息，则默认拒绝，除非显式：
+
+```text
+--allow-legacy-checkpoint 1
+```
+
+日志必须说明：
+
+```text
+[LEGACY CHECKPOINT] Data contract is unknown.
+```
+
+## 6. 扩散步数
+
+训练配置：
+
+```text
+T=2000
+```
+
+构造 diffusion 始终使用训练配置的 T。
+
+禁止通过：
+
+```python
+GaussianDiffusion(args.sampling_steps, ...)
+```
+
+重新构造不同长度噪声日程。
+
+`--sampling-steps` 只用于校验：
+
+```python
+if sampling_steps != trained_steps:
+    raise ValueError(...)
+```
+
+在没有实现并验证 DDIM 或 timestep respacing 前：
+
+```text
+正式推理必须使用2000步
+```
+
+## 7. loss累计
+
+所有 epoch loss 使用 Python float：
+
+```python
+loss_sum = 0.0
+loss_sum += float(loss.detach().item())
+```
+
+不得跨 batch 保存计算图。
+
+## 8. 正式验证模式
+
+支持：
+
+```text
+--validation-mode smoke
+--validation-mode loss
+--validation-mode sample
+```
+
+### smoke
+
+* 一个 batch；
+* 一个 forward；
+* 不作为best模型依据。
+
+### loss
+
+* 遍历完整验证集；
+* 计算平均 diffusion loss；
+* timestep采样可复现；
+* 输出有效样本数。
+
+### sample
+
+* 对固定少量样本执行完整生成；
+* 保存预测；
+* 有GT时计算 PSNR、SSIM；
+* LPIPS可选；
+* 不必每个 epoch运行。
+
+增加：
+
+```text
+--sample-val-every
+--sample-val-count
+```
+
+## 9. RGB测试
+
+必须新增：
+
+1. 纯红图通道测试；
+2. 纯蓝图通道测试；
+3. train/val/infer normalization一致性测试；
+4. RGB tensor保存PNG后颜色不交换；
+5. checkpoint data_contract测试；
+6. 错误契约checkpoint拒绝测试；
+7. 完整resume测试；
+8. 非2000步拒绝测试。
+
+---
+
+# 七、ReDiffuse：保留并使用官方B_Conv字节码
+
+处理：
+
+```text
+D:\focus_exp\baselines\ReDiffuse
+```
+
+官方没有公开 `B_Conv.py`，但仓库发布了：
+
+```text
+Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
+```
+
+并指定 Python 3.8.10。
+
+本轮必须使用作者发布的字节码，不得猜写源码。
+
+## 1. 绝对禁止
+
+不得：
+
+* 猜写 `B_Conv.py`；
+* 用普通 `Conv2d`替代；
+* 删除旋转等变模块；
+* 将反编译结果声称为官方源码；
+* 使用 `strict=False`掩盖结构不匹配；
+* 删除官方 `B_Conv.cpython-38.pyc`。
+
+## 2. 检查官方字节码
+
+首先检查本地：
+
+```text
+baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
+```
+
+如果存在，保留。
+
+如果此前清理时已删除：
+
+1. 从作者官方 ReDiffuse 仓库恢复同一文件；
+2. 不从未知第三方fork获取；
+3. 计算SHA256；
+4. 将来源、下载时间和SHA256记录到报告；
+5. 不修改文件内容。
+
+## 3. 新增准备脚本
+
+新增：
+
+```text
+baselines/ReDiffuse/prepare_official_bytecode.py
+```
+
+功能：
+
+1. 检查解释器为 CPython；
+2. 检查 Python版本为3.8；
+3. 检查源pyc存在；
+4. 检查pyc magic number；
+5. 计算SHA256；
+6. 复制为：
+
+```text
+Condition_Noise_Predictor/B_Conv.pyc
+```
+
+7. 导入模块；
+8. 打印实际加载路径；
+9. 失败时明确退出。
+
+实现参考：
+
+```python
+from __future__ import annotations
+
+import hashlib
+import importlib
+import importlib.util
+import platform
+import shutil
+import sys
+from pathlib import Path
+
+
+def main() -> None:
+    repo_dir = Path(__file__).resolve().parent
+    package_dir = repo_dir / "Condition_Noise_Predictor"
+
+    source_pyc = (
+        package_dir
+        / "__pycache__"
+        / "B_Conv.cpython-38.pyc"
+    )
+    runtime_pyc = package_dir / "B_Conv.pyc"
+
+    if platform.python_implementation() != "CPython":
+        raise RuntimeError(
+            "Official B_Conv bytecode requires CPython."
+        )
+
+    if sys.version_info[:2] != (3, 8):
+        raise RuntimeError(
+            "Official B_Conv bytecode requires CPython 3.8. "
+            f"Current interpreter: {sys.version}"
+        )
+
+    if not source_pyc.is_file():
+        raise FileNotFoundError(
+            "Official B_Conv bytecode is missing: "
+            f"{source_pyc}"
+        )
+
+    payload = source_pyc.read_bytes()
+
+    if len(payload) < 16:
+        raise RuntimeError(
+            f"Invalid or truncated pyc file: {source_pyc}"
+        )
+
+    file_magic = payload[:4]
+    runtime_magic = importlib.util.MAGIC_NUMBER
+
+    if file_magic != runtime_magic:
+        raise RuntimeError(
+            "B_Conv bytecode magic does not match the "
+            "current CPython interpreter. "
+            f"file={file_magic.hex()} "
+            f"runtime={runtime_magic.hex()}"
+        )
+
+    sha256 = hashlib.sha256(payload).hexdigest()
+
+    shutil.copy2(source_pyc, runtime_pyc)
+    importlib.invalidate_caches()
+
+    module = importlib.import_module(
+        "Condition_Noise_Predictor.B_Conv"
+    )
+
+    print(f"[B_CONV] source={source_pyc}")
+    print(f"[B_CONV] runtime={runtime_pyc}")
+    print(f"[B_CONV] sha256={sha256}")
+    print(f"[B_CONV] python={sys.version}")
+    print(f"[B_CONV] imported={module.__file__}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+运行生成的：
+
+```text
+Condition_Noise_Predictor/B_Conv.pyc
+```
+
+可以加入 `.gitignore`，每次由准备脚本生成。
+
+原始作者发布的：
+
+```text
+__pycache__/B_Conv.cpython-38.pyc
+```
+
+必须保留并跟踪。
+
+## 4. ReDiffuse独立环境
+
+新增环境说明：
+
+```bash
+conda create -n rediffuse38 python=3.8.10 -y
+conda activate rediffuse38
+
+cd /path/to/focus_exp/baselines/ReDiffuse
+pip install -r requirements.txt
+python prepare_official_bytecode.py
+```
+
+Windows：
+
+```powershell
+conda create -n rediffuse38 python=3.8.10 -y
+conda activate rediffuse38
+
+Set-Location "D:\focus_exp\baselines\ReDiffuse"
+pip install -r requirements.txt
+python prepare_official_bytecode.py
+```
+
+一键脚本支持：
+
+```text
+REDIFFUSE_PYTHON
+```
+
+例如：
+
+```bash
+REDIFFUSE_PYTHON=/path/to/envs/rediffuse38/bin/python
+```
+
+不能强制 ReDiffuse 与其他 baseline共用Python环境。
+
+## 5. ReDiffuse模型验证
+
+字节码导入后，必须完成：
+
+1. 构造原始模型；
+2. 加载作者 `weights/model.pt`；
+3. 使用 `strict=True`；
+4. missing keys为空；
+5. unexpected keys为空；
+6. 一个最小 forward；
+7. 一个metadata推理smoke。
+
+只有全部通过，才能标记：
+
+```text
+Official bytecode import: PASS
+Model construction: PASS
+Official checkpoint strict load: PASS
+Forward smoke: PASS
+Metadata inference smoke: PASS
+```
+
+如果任何一步失败：
+
+* 保留完整日志；
+* ReDiffuse标记为阻塞；
+* 不猜改B_Conv；
+* 不使用strict=False。
+
+## 6. ReDiffuse metadata RGB训练
+
+本项目正式训练使用：
+
+```text
+A  = edit_image[0]，RGB
+B  = edit_image[1]，RGB
+GT = image，RGB
+```
+
+训练和推理必须一致。
+
+官方 `model.pt`主要用于证明模型定义和B_Conv字节码兼容，不默认作为本项目RGB训练初始化。
+
+正式实验checkpoint来自 metadata RGB从头训练。
+
+保存：
+
+```text
+data_contract.json
+```
+
+至少：
+
+```json
+{
+  "method": "ReDiffuse",
+  "dataset_format": "metadata",
+  "color_space": "RGB",
+  "input_a": "edit_image[0]",
+  "input_b": "edit_image[1]",
+  "target": "image",
+  "ignored_edit_images": "edit_image[2:]",
+  "diffusion_steps": 2000,
+  "b_conv_source": "official CPython 3.8 bytecode"
+}
+```
+
+## 7. ReDiffuse checkpoint与resume
+
+参照FusionDiff实现：
+
+* 完整model；
+* optimizer；
+* scheduler；
+* epoch；
+* global_step；
+* config；
+* data_contract；
+* random state。
+
+分开：
+
+```text
+--init-checkpoint
+--resume
+```
+
+不要把纯模型权重称为完整resume。
+
+## 8. ReDiffuse扩散步数
+
+继续强制训练时的：
+
+```text
+T=2000
+```
+
+未实现可信少步采样前，不得直接修改T。
+
+## 9. ReDiffuse验证模式
+
+同样支持：
+
+```text
+smoke
+loss
+sample
+```
+
+正式loss验证遍历完整验证集。
+
+sample验证可定期执行固定少量样本。
+
+---
+
+# 八、IFCNN
+
+处理：
+
+```text
+D:\focus_exp\baselines\IFCNN
+```
+
+要求：
+
+1. metadata推理兼容；
+2. A、B只取前两张；
+3. RGB输入；
+4. 加载真实checkpoint；
+5. 日志打印checkpoint绝对路径；
+6. 不允许随机初始化正式推理；
+7. 输出RGB PNG。
+
+如果官方仓库没有完整训练入口：
+
+* 不新增伪官方训练；
+* 报告中写“官方仓库未提供完整训练循环”；
+* 只完成checkpoint推理。
+
+---
+
+# 九、ZMFF
+
+处理：
+
+```text
+D:\focus_exp\baselines\ZMFF
+```
+
+要求：
+
+1. metadata逐样本读取A、B；
+2. 每个样本重新初始化模型；
+3. 每个样本重新初始化optimizer；
+4. 每个样本重新初始化mask；
+5. 不在样本间复用参数；
+6. GT不参与优化；
+7. 支持：
+
+```text
+--iterations
+--seed
+--start-index
+--max-samples
+```
+
+8. 四图时只取前两张；
+9. 输出RGB PNG；
+10. 不新增普通监督训练。
+
+---
+
+# 十、DSIFT
+
+处理：
+
+```text
+D:\focus_exp\baselines\DSIFT-MFIF
+```
+
+要求：
+
+1. 保留MATLAB原算法；
+2. metadata读取A、B；
+3. 忽略后续edit_image；
+4. 支持批量推理；
+5. 单个错误记录后继续；
+6. 不新增训练；
+7. 不擅自重写Python版算法。
+
+---
+
+# 十一、一键训练脚本
+
+新增或更新：
+
+```text
+D:\focus_exp\run_train_metadata_v3.sh
+```
+
+支持：
+
+```text
+METHOD=swinfusion
+METHOD=fusiondiff
+METHOD=rediffuse
+METHOD=all
+```
+
+DSIFT、IFCNN、ZMFF不进入监督训练。
+
+参数：
+
+```bash
+ROOT=/path/to/focus_exp
+METHOD=swinfusion
+TRAIN_META=/path/train.json
+VAL_META=/path/val.json
+OUTPUT_ROOT=/path/train_outputs
+TAG=experiment_name
+GPUS=0
+NUM_WORKERS=4
+MAX_SAMPLES=-1
+MAX_TRAIN_STEPS=-1
+SEED=17
+INIT_MODE=scratch
+INIT_CHECKPOINT=
+INIT_CHECKPOINT_DIR=
+RESUME=
+RESUME_DIR=
+VALIDATION_MODE=loss
+SAMPLE_VAL_EVERY=10
+SAMPLE_VAL_COUNT=4
+REDIFFUSE_PYTHON=/path/to/python3.8
+```
+
+必须：
+
+1. 使用 `set -Eeuo pipefail`。
+2. 检查metadata存在。
+3. 创建独立输出目录。
+4. 输出目录非空时默认拒绝覆盖。
+5. 打印完整运行配置。
+6. SwinFusion尊重外部GPU映射。
+7. FusionDiff打印RGB契约。
+8. ReDiffuse先运行字节码准备脚本。
+9. ReDiffuse Python不是3.8时明确失败。
+10. 每个方法返回真实退出码。
+11. `METHOD=all`用于smoke时顺序运行。
+12. 正式长训练README建议分别启动各模型，不建议串行all。
+
+---
+
+# 十二、一键推理脚本
+
+新增或更新：
+
+```text
+D:\focus_exp\run_infer_metadata_v3.sh
+```
+
+支持：
+
+```text
+METHOD=dsift
+METHOD=ifcnn
+METHOD=swinfusion
+METHOD=zmff
+METHOD=fusiondiff
+METHOD=rediffuse
+METHOD=all
+```
+
+参数：
+
+```bash
+ROOT=/path/to/focus_exp
+METHOD=all
+METADATA=/path/test.json
+OUTPUT_ROOT=/path/outputs
+CUDA_VISIBLE_GPU=0
+START_INDEX=0
+MAX_SAMPLES=-1
+OVERWRITE=0
+SEED=17
+STRICT=0
+
+IFCNN_CKPT=
+SWINFUSION_CKPT=
+FUSIONDIFF_CKPT=
+REDIFFUSE_CKPT=
+REDIFFUSE_PYTHON=
+ZMFF_ITERATIONS=1300
+SAMPLING_STEPS=2000
+```
+
+行为：
+
+### DSIFT
+
+* 检查MATLAB；
+* 缺失时按STRICT策略跳过或失败。
+
+### IFCNN
+
+* 检查checkpoint；
+* 禁止随机权重推理。
+
+### SwinFusion
+
+* 检查MFIF checkpoint；
+* 禁止误用其他任务权重。
+
+### ZMFF
+
+* 每个样本独立优化。
+
+### FusionDiff
+
+* 只加载metadata RGB checkpoint；
+* 检查data_contract；
+* 强制2000步；
+* 输出RGB PNG。
+
+### ReDiffuse
+
+1. 使用`REDIFFUSE_PYTHON`；
+2. 运行`prepare_official_bytecode.py`；
+3. 导入B_Conv；
+4. 加载metadata RGB checkpoint；
+5. 检查data_contract；
+6. 强制2000步；
+7. 输出RGB PNG。
+
+如果使用作者官方model.pt做兼容smoke，应通过单独参数明确指定，不要与自训RGB正式结果混淆。
+
+---
+
+# 十三、smoke metadata
+
+保留或新增公共测试数据。
+
+## 样本1
+
+```json
+{
+  "image": "images/sample1_gt.png",
+  "edit_image": [
+    "images/sample1_a.png",
+    "images/sample1_b.png"
+  ],
+  "source_index": 1
+}
+```
+
+## 样本2
+
+```json
+{
+  "image": "images/sample2_gt.png",
+  "edit_image": [
+    "images/sample2_a.png",
+    "images/sample2_b.png",
+    "images/DO_NOT_EXIST_focus_a.png",
+    "images/DO_NOT_EXIST_focus_b.png"
+  ],
+  "source_index": 2
+}
+```
+
+样本2必须正常运行，用来证明后两张完全未访问。
+
+---
+
+# 十四、必须执行的测试
+
+## 公共测试
+
+* 两图metadata；
+* 四图metadata；
+* 后两图不存在仍正常；
+* 相对路径；
+* Windows反斜杠路径；
+* UTF-8 BOM；
+* 缺GT训练报错；
+* 推理缺GT允许；
+* A/B/GT同步变换；
+* train随机、val确定；
+* RGB红蓝通道测试。
+
+## SwinFusion
+
+* Dataset smoke；
+* model forward；
+* optimizer step；
+* validation forward；
+* scratch；
+* official；
+* resume；
+* 单卡GPU映射；
+* 多卡GPU映射；
+* TensorBoard隔离。
+
+## FusionDiff
+
+* RGB数据流；
+* model forward；
+* optimizer step；
+* 完整checkpoint；
+* 完整resume；
+* validation-mode loss；
+* 2000步契约；
+* 非2000步拒绝；
+* metadata推理预处理一致。
+
+## ReDiffuse
+
+* CPython 3.8检查；
+* pyc magic检查；
+* SHA256记录；
+* B_Conv导入；
+* 模型构造；
+* 官方checkpoint strict load；
+* forward；
+* metadata Dataset；
+* optimizer step；
+* 自训checkpoint save/load；
+* metadata推理入口。
+
+完整2000步采样耗时过高时，可以标记未执行，但不能谎称通过。
+
+## IFCNN
+
+* checkpoint严格加载；
+* 一条metadata推理；
+* 四图只取前两张。
+
+## ZMFF
+
+* 两个样本之间模型状态不复用；
+* 一条低迭代smoke；
+* 四图只取前两张。
+
+## DSIFT
+
+* MATLAB可用时运行两条smoke；
+* 无MATLAB时明确记录未验证。
+
+---
+
+# 十五、Git清理
+
+普通缓存继续忽略：
+
+```gitignore
+__pycache__/
+*.py[cod]
+outputs/
+logs/
+runs/
+checkpoints/
+```
+
+但是必须为官方 ReDiffuse 文件设置例外，确保它不被删除。
+
+可以使用：
+
+```gitignore
+!baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/
+!baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
+```
+
+确认Git实际跟踪：
+
+```bash
+git ls-files | grep B_Conv
+```
+
+运行时生成的：
+
+```text
+Condition_Noise_Predictor/B_Conv.pyc
+```
+
+可以忽略，不需要提交。
+
+---
+
+# 十六、更新文档
+
+更新：
+
+```text
+README.md
+baselines/README.md
+CODEX_METADATA_TRAINING_REPORT.md
+```
+
+新增状态表：
+
+| Method     | Metadata RGB train | Metadata RGB infer | Model forward | Optimizer step | Checkpoint load | Full resume | Sampling | Ready | Blocker |
+| ---------- | -----------------: | -----------------: | ------------: | -------------: | --------------: | ----------: | -------: | ----: | ------- |
+| DSIFT      |                N/A |                    |           N/A |            N/A |             N/A |         N/A |          |       | MATLAB  |
+| IFCNN      |   No official loop |                    |               |            N/A |                 |         N/A |          |       |         |
+| SwinFusion |                    |                    |               |                |                 |             |          |       |         |
+| ZMFF       |                N/A |                    |     Per-image |            N/A |             N/A |         N/A |          |       |         |
+| FusionDiff |                    |                    |               |                |                 |             |          |       |         |
+| ReDiffuse  |                    |                    |               |                |                 |             |          |       |         |
+
+必须区分：
+
+* 静态代码检查；
+* Dataset smoke；
+* model forward；
+* optimizer step；
+* checkpoint strict load；
+* resume；
+* 正式采样。
+
+没有运行的写：
+
+```text
+未验证
+```
+
+不能写“应该可以”。
+
+ReDiffuse报告必须记录：
+
+```text
+B_Conv来源：作者官方仓库CPython 3.8字节码
+B_Conv SHA256：
+Python版本：
+pyc magic：
+实际导入路径：
+官方model.pt strict load结果：
+```
+
+---
+
+# 十七、禁止事项
+
+1. 不改各baseline核心模型结构。
+2. 不改论文原始扩散公式。
+3. 不把focus map作为输入。
+4. 不读取`edit_image[2:]`。
+5. 不用A代替GT。
+6. 不猜写B_Conv。
+7. 不用普通Conv替代B_Conv。
+8. 不用strict=False掩盖错误。
+9. 不混用RGB checkpoint与未知BGR checkpoint。
+10. 不把旧纯权重称为完整resume。
+11. 不通过修改T实现伪少步采样。
+12. 不删除作者发布的B_Conv字节码。
+13. 不污染官方checkpoint目录。
+14. 不提交测试输出、日志和临时文件。
+15. 不运行长时间全量训练，本轮只做smoke。
+16. 不要求恢复原图大小。
+17. 不只写建议，必须实际修改和测试。
+
+---
+
+# 十八、最终验收标准
+
+只有满足以下条件才算完成：
+
+1. metadata字段规则完全保持。
+2. 四图只读取前两张。
+3. metadata训练和推理统一RGB。
+4. A/B/GT同步预处理。
+5. SwinFusion训练、验证和推理真正接入metadata。
+6. SwinFusion GPU逻辑映射正确。
+7. SwinFusion输出和TensorBoard隔离。
+8. FusionDiff支持RGB从头训练。
+9. FusionDiff支持完整resume。
+10. FusionDiff正式验证不再只看一个batch的t=0。
+11. FusionDiff强制训练T。
+12. ReDiffuse官方B_Conv字节码能够在CPython 3.8导入。
+13. ReDiffuse官方模型能够strict加载。
+14. ReDiffuse metadata RGB训练至少完成一个optimizer step。
+15. ReDiffuse自训checkpoint能够保存和恢复。
+16. DSIFT、IFCNN、ZMFF没有被错误改成监督训练。
+17. v3一键训练和推理脚本存在。
+18. smoke测试结果如实记录。
+19. 未验证项目明确写未验证。
+20. 提交中不包含无关缓存和输出。
+
+完成后请输出：
+
+1. 修改文件列表；
+2. 每个文件修改摘要；
+3. metadata RGB数据流；
+4. SwinFusion训练、resume、推理命令；
+5. FusionDiff从头训练、resume、推理命令；
+6. ReDiffuse环境创建、字节码准备、训练、resume、推理命令；
+7. B_Conv SHA256和导入路径；
+8. 所有实际执行的测试命令；
+9. 所有测试结果；
+10. 未解决问题；
+11. 新提交哈希。
+
+请直接修改代码并执行能够执行的测试，不要只返回建议或示例代码。
