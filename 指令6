@@ -1,0 +1,947 @@
+你现在修改仓库：
+
+* 仓库：`Ta01017/focus_exp`
+* 基础分支：`fix/metadata-train-infer-v2`
+* 目标：新增一个彻底不依赖 MATLAB/Octave/MATLAB Engine 的 Python-only 版本。
+* 建议新分支：`fix/python-only-metrics-dsift-v1`
+
+不要修改任何用户数据集、metadata、checkpoint 或现有实验输出。不要破坏 IFCNN、SwinFusion、FusionDiff、ReDiffuse、ZMFF 的训练和推理。
+
+## 一、最终目标
+
+完成后必须满足：
+
+1. 12 个双源融合指标全部由 Python 实现：
+
+   * `qmi`
+   * `qsf`
+   * `qs`
+   * `qcb`
+   * `qabf`
+   * `qabf_analysis`
+   * `qncie`
+   * `qg`
+   * `qp`
+   * `qe`
+   * `qviff`
+   * `ms_ssim_src`
+
+2. DSIFT-MFIF 全部改成 Python 推理，不再调用 MATLAB。
+
+3. 仓库所有正式运行路径中不得再出现：
+
+   * `require_cmd matlab`
+   * `command -v matlab`
+   * `matlab -batch`
+   * `subprocess.run(["matlab", ...])`
+   * MATLAB Engine
+   * Octave
+   * 运行时读取或执行 `.m` 文件
+
+4. 原始 `.m` 文件可以保留作为论文代码参考，但不得参与正式运行。给它们增加明确说明：`reference only, not used at runtime`。
+
+5. `RUN_EVAL=1` 配合 `metrics=all` 或 `all_no_gt` 时，在无 MATLAB 环境中能够计算全部 Python 指标，不得因为缺少 MATLAB 产生整批失败。
+
+6. 不允许用名称相似但定义不同的第三方指标替代原公式。必须逐函数对照当前 MATLAB 源码和官方来源移植。
+
+## 二、先完整审计，不要直接盲改
+
+先执行并在最终报告中附上结果：
+
+```bash
+git status --short
+git branch --show-current
+git rev-parse HEAD
+
+find . -type f \( -name '*.m' -o -name '*.mlx' \) | sort
+
+rg -n --hidden \
+  'matlab|MATLAB|matlab_backend|run_legacy_batch|require_cmd[[:space:]]+matlab|matlab[[:space:]]+-batch|backend.*matlab' \
+  --glob '!**/.git/**'
+```
+
+确认至少包含以下两条 MATLAB 运行链路：
+
+1. `mfif_eval_toolkit` 的 12 个双源指标。
+2. `baselines/DSIFT-MFIF` 的推理 pipeline。
+
+不要只改 README 或把 MATLAB 指标标记成 skipped；必须真正实现 Python 版本。
+
+---
+
+# 第一部分：12 个双源指标改成 Python
+
+## 三、创建独立的 Python 源图指标包
+
+建议建立：
+
+```text
+mfif_eval_toolkit/mfif_eval/source_metrics/
+├── __init__.py
+├── backend.py
+├── common.py
+├── qmi.py
+├── qsf.py
+├── qs.py
+├── qcb.py
+├── qabf.py
+├── qncie.py
+├── qg.py
+├── qp.py
+├── qviff.py
+└── ms_ssim_src.py
+```
+
+允许根据共享代码情况调整文件数，但不得把所有实现粗暴塞进一个超大文件。
+
+对外提供稳定接口：
+
+```python
+def compute_source_metric(
+    name: str,
+    source_a: np.ndarray,
+    source_b: np.ndarray,
+    fused: np.ndarray,
+) -> float:
+    ...
+```
+
+以及批处理接口：
+
+```python
+def run_python_source_metrics(
+    frame: pd.DataFrame,
+    metrics: Iterable[str],
+) -> pd.DataFrame:
+    ...
+```
+
+返回结果必须以 `row_id` 为索引，并保留当前 evaluator 期望的列名。
+
+## 四、严格保持当前 MATLAB 预处理协议
+
+当前 `run_legacy_batch.m` 的协议是：
+
+1. 分别读取 A、B、F。
+2. RGB 转灰度。
+3. 转成 `double`，范围保持 `[0,255]`。
+4. A、B、F 尺寸必须严格一致。
+5. 不 resize、不 crop、不重新配准。
+6. 指标若返回非标量，则对所有元素执行忽略 NaN 的均值。
+
+Python 实现必须复制这一协议。
+
+特别注意：
+
+* 不要把输入偷偷归一化到 `[0,1]`，除非对应原 MATLAB 函数内部明确这样做。
+* MATLAB 对 `uint8` 的 `rgb2gray` 有量化/舍入行为。实现一个明确的 MATLAB-compatible 灰度转换函数，并写测试。
+* 使用 `float64` 进行传统指标计算，除非原始实现明确要求其他类型。
+* 输入包含 NaN、常量图、全黑图时，行为必须可控；不能产生未捕获异常导致整批退出。
+* 不得改变图像坐标、边界或大小。
+
+在 `common.py` 中实现并测试这些 MATLAB 兼容辅助函数：
+
+* `rgb2gray_uint8_matlab_compatible`
+* `im2double` 所需行为
+* `fspecial_gaussian`
+* `filter2_same`
+* `conv2_same`
+* `corr2`
+* 二维梯度
+* Sobel 卷积
+* 直方图与联合直方图
+* 熵和互信息
+* MATLAB 风格边界处理
+* 忽略 NaN 的标量归约
+
+需要注意 `filter2` 与 `conv2` 的核翻转差异，不得直接把二者当作同一个函数。
+
+## 五、逐项一一移植，禁止合并名称
+
+保持以下映射不变：
+
+```text
+qmi            <- metricMI(A, B, F, 1)
+qsf            <- metricZheng(A, B, F)
+qs             <- metricPeilla(A, B, F, 1)
+qcb            <- metricChenBlum(A, B, F)
+qabf           <- Qabf(A, B, F)
+qabf_analysis  <- analysis_Qabf(A, B, F)
+qncie          <- metricWang(A, B, F)
+qg             <- metricXydeas(A, B, F)
+qp             <- metricZhao(A, B, F)
+qe             <- metricPeilla(A, B, F, 3)
+qviff          <- VIFF_Public(A, B, F)
+ms_ssim_src    <- analysis_MSSSIM(A, B, F)
+```
+
+必须递归检查每个 MATLAB 函数调用的辅助函数，并一起移植。
+
+尤其注意：
+
+### `qabf`、`qabf_analysis`、`qg`
+
+这三个名称容易混淆，但当前仓库有意保留为三个独立列：
+
+* `qabf`：`Qabf`
+* `qabf_analysis`：`analysis_Qabf`
+* `qg`：`metricXydeas`
+
+不得因为公式相似就让三个 ID 调用同一个 Python 函数，也不得删除其中任何一项。
+
+### `qs` 与 `qe`
+
+二者都来自 `metricPeilla`，但参数分别是：
+
+```text
+qs -> mode 1
+qe -> mode 3
+```
+
+可以复用底层实现，但必须保留两个独立入口和结果列。
+
+### `qviff`
+
+必须按照 `VIFF_Public` 的多尺度计算、滤波器、噪声方差、降采样和数值保护逻辑移植，不能直接使用普通 VIF 库代替。
+
+### `qcb`
+
+必须递归移植原 Chen-Blum 指标所需的对比敏感度、局部对比度、滤波或金字塔处理，不能用 SSIM 或梯度指标替代。
+
+### `qp`
+
+必须完整处理 `metricZhao` 依赖的相位、边缘或局部质量函数。不要因实现复杂而返回占位值。
+
+### `ms_ssim_src`
+
+必须对照 `analysis_MSSSIM` 的源图融合定义。它不是 GT 模式下的 `MS-SSIM(GT)`，不能直接把 `pytorch_msssim(F, GT)` 复制过来。
+
+## 六、记录来源
+
+每个 Python 指标模块顶部写明：
+
+* 原 MATLAB 函数名。
+* 原代码仓库。
+* 读取的具体文件。
+* 移植日期。
+* 当前 `focus_exp` 分支。
+* 算法或论文名称。
+* 是否经过 MATLAB 数值对齐验证。
+
+不要复制无关 MATLAB 文件。只移植当前 12 个指标及其真实依赖。
+
+如果第三方代码有许可证或引用要求，保留原版权和引用说明。
+
+---
+
+# 第二部分：重构 evaluator
+
+## 七、修改 registry
+
+不要把源图指标简单标成当前的 `"python"`，因为现有 evaluator 把 `"python"` 当作只计算 GT 指标。
+
+改为明确后端类型，例如：
+
+```text
+python_gt
+python_source
+qcnn
+```
+
+要求：
+
+```text
+psnr, ssim, lpips, mae, mse, ms_ssim_gt -> python_gt
+
+qmi, qsf, qs, qcb, qabf, qabf_analysis,
+qncie, qg, qp, qe, qviff, ms_ssim_src -> python_source
+
+qcnn -> qcnn
+```
+
+所有指标组名称和成员保持兼容：
+
+* `gt_main`
+* `gt_all`
+* `no_gt_main`
+* `ips`
+* `rediffuse`
+* `all_no_gt`
+* `all`
+
+## 八、修改 evaluator
+
+在：
+
+```text
+mfif_eval_toolkit/mfif_eval/evaluator.py
+```
+
+完成以下重构：
+
+1. 删除正式运行路径对：
+
+```python
+from .matlab_backend import run_matlab_metrics
+```
+
+的依赖。
+
+2. 按后端拆分：
+
+```python
+gt_metrics
+source_metrics
+need_qcnn
+```
+
+3. GT 指标继续使用现有 `compute_gt_metrics`。
+
+4. 源图指标通过新的 `run_python_source_metrics` 计算。
+
+5. 支持：
+
+   * `mode=no_gt`：计算源图指标。
+   * `mode=gt` 且设置 `--source-metrics-on-gt`：同时计算 GT 指标和源图指标。
+   * `mode=gt` 且未设置该参数：按当前规则跳过源图指标。
+   * 某一个指标失败时只记录该指标错误，不要让同一张图的其他指标全部丢失。
+   * 某一张图失败时不影响其他图。
+
+6. `per_image.csv` 中仍保留：
+
+   * 各指标列。
+   * `skipped_metrics`
+   * `error`
+
+7. `summary.csv` 的均值、标准差、样本数和 failures 逻辑保持兼容。
+
+8. `run_metadata.json` 中记录：
+
+   * backend 为 `python_gt`、`python_source` 或 `qcnn`。
+   * Python port 的版本号。
+   * 原 MATLAB 函数映射。
+   * 数值验证状态。
+
+## 九、CLI 兼容
+
+`evaluate.py` 不再需要 MATLAB。
+
+可以保留以下旧参数以避免旧命令直接报未知参数：
+
+```text
+--matlab-command
+--objective-root
+```
+
+但应：
+
+* 标记为 deprecated。
+* 不再调用或检查 MATLAB。
+* 打印一次简短 warning。
+* 不得因为参数值不存在而失败。
+
+`--tpami-root` 仍可保留，因为 QCNN 需要官方 `model.py` 和 `resnet34.pth`。
+
+## 十、处理旧 matlab_backend
+
+以下两种方式任选其一：
+
+方案 A，优先：
+
+* 保留 `matlab_backend.py`，但仅作为可选的数值对齐工具。
+* 正式 evaluator 永远不 import、不调用它。
+* 文件头注明仅用于开发阶段 parity comparison。
+
+方案 B：
+
+* 移入 `tools/reference_matlab/`。
+* 更新所有 import 和文档。
+* 正式包中不再存在 MATLAB runtime dependency。
+
+不要直接删除原 `run_legacy_batch.m`；将其保留为参考，并注明不参与运行。
+
+---
+
+# 第三部分：prepare_backends 和依赖
+
+## 十一、修改 prepare_backends.sh
+
+当前脚本下载两个仓库，其中传统指标仓库只用于 MATLAB。
+
+修改后：
+
+1. 默认只准备 QCNN 所需内容：
+
+   * `MFIF-Metrics/QCNN-metric/model.py`
+   * `MFIF-Metrics/QCNN-metric/resnet34.pth`
+
+2. Objective-evaluation 仓库不再是运行时依赖。
+
+3. 不再输出：
+
+   * `Legacy metrics require MATLAB`
+   * `Install MATLAB`
+   * Image Processing Toolbox 要求。
+
+4. 可以增加一个可选参数：
+
+```bash
+bash prepare_backends.sh --reference-sources
+```
+
+只用于开发人员下载原 MATLAB 参考代码；默认不下载，不影响运行。
+
+5. 脚本不得把 Python 指标实现依赖于第三方仓库当前目录。Python port 必须已经提交在本仓库中。
+
+## 十二、requirements
+
+确保 `mfif_eval_toolkit/requirements.txt` 至少包含运行所需的稳定 Python 依赖。
+
+优先使用：
+
+* NumPy
+* SciPy
+* scikit-image
+* Pillow
+* pandas
+* PyTorch
+* torchvision
+* lpips
+* pytorch-msssim
+
+只有确实必要时才能新增依赖，并说明用途。
+
+禁止新增：
+
+* MATLAB Engine
+* Octave
+* oct2py
+* 需要系统 MATLAB runtime 的包
+* 冷门、无人维护、无法从普通 pip 安装的指标包
+
+新增依赖必须兼容当前 Python 3.12 环境。
+
+---
+
+# 第四部分：DSIFT-MFIF 改成 Python
+
+## 十三、保留原算法，不要换成 OpenCV SIFT 拼凑版
+
+当前 DSIFT-MFIF 是论文原始 Dense SIFT 融合算法。不能简单替换成：
+
+* OpenCV `SIFT_create`
+* 两图 Laplacian 取大值
+* 普通 focus measure
+* 其他名为 DSIFT 的第三方实现
+
+必须逐函数移植现有 MATLAB 算法。
+
+需要覆盖这些功能：
+
+```text
+DSIFTNormalization.m
+DSIFT_Fusion.m
+DenseSIFT.m
+SF.m
+generate_initmap.m
+img_extend.m
+refine_withmatching.m
+refine_withoutmatching.m
+infer_metadata.m
+```
+
+`Script.m` 和 `smoke_test_metadata.m` 改写成 Python 示例/测试。
+
+建议新增：
+
+```text
+baselines/DSIFT-MFIF/
+├── dsift_mfif.py
+├── infer_metadata.py
+├── test_dsift_mfif.py
+└── reference_matlab/
+```
+
+原 `.m` 文件可以继续原位置保留，也可以放到 `reference_matlab/`，但不得被运行脚本调用。
+
+## 十四、DSIFT 算法协议
+
+默认参数保持：
+
+```text
+scale=48
+blocksize=8
+matching=True
+grid_spacing=1
+```
+
+保持原流程：
+
+1. A、B 转 `double`。
+2. RGB 转灰度，仅用于决策图。
+3. 对灰度图执行零填充扩展：
+
+   * padding 大小为 `scale/4 - 1`
+   * 当前默认即 11。
+4. Dense SIFT patch size 为 `scale/2`：
+
+   * 当前默认即 24。
+5. Dense SIFT：
+
+   * 8 个方向。
+   * 4×4 spatial bins。
+   * 描述子 128 维。
+   * `alpha=9`。
+   * Gaussian sigma 为 1。
+6. 生成两个初始决策图。
+7. `blocksize=8`，移动步长为 1。
+8. 阈值 `k=0.99`。
+9. 连通域清理面积阈值为 3600。
+10. matching 模式使用局部 7×7 描述子匹配。
+11. spatial frequency 比较使用 7×7 或 5×5 原始窗口，严格与 MATLAB 一致。
+12. 最终：
+
+    ```text
+    F = A * map + B * (1-map)
+    ```
+13. RGB 图对三个通道使用同一决策图。
+14. 最终输出为 uint8 PNG。
+
+## 十五、MATLAB 与 NumPy 索引差异必须显式处理
+
+重点检查：
+
+* MATLAB 1-based 到 Python 0-based。
+* MATLAB 切片右端包含，Python 不包含。
+* MATLAB `reshape` 和线性索引默认 column-major。
+* NumPy 默认 row-major。
+* MATLAB `find` 的返回顺序是 column-major。
+* 匹配距离出现多个并列最小值时，原代码取 `find` 返回的第一个。
+
+对于 tie-breaking，不能直接使用普通的：
+
+```python
+np.argmin(array)
+```
+
+而应显式模拟 MATLAB column-major 顺序，例如对 `ravel(order="F")` 求最小索引，再用 `order="F"` 还原坐标。
+
+Dense SIFT 的 descriptor 排列也要检查 `meshgrid`、`reshape`、bin 顺序和 channel 顺序，必要时使用 `order="F"`。
+
+## 十六、MATLAB 图像函数兼容
+
+逐项验证：
+
+* `filter2(..., "same")`
+* `conv2(..., "same")`
+* `gradient`
+* `fspecial("gaussian", ...)`
+* `bwareaopen`
+* `rgb2gray`
+* `uint8` 转换
+* 零 padding
+
+`bwareaopen` 的二维默认连接性要与 MATLAB 一致。使用 scikit-image 时明确设置正确 connectivity，不得依赖默认值。
+
+不要把原来的零 padding 改为 reflect、replicate 或 circular padding。
+
+## 十七、DSIFT 内存和性能
+
+1024×1024×128 的 dense descriptor 非常大。
+
+要求：
+
+1. 先保证结果正确，再优化。
+2. 不得因为省内存而改变公式。
+3. 支持：
+
+   ```text
+   --device auto
+   --device cpu
+   --device cuda:0
+   --chunk-rows N
+   ```
+4. 默认 `auto`：
+
+   * 有 CUDA 时可以使用 PyTorch 加速卷积和局部距离。
+   * 无 CUDA 时使用 NumPy/SciPy。
+5. 对 descriptor 使用 float32；累计分数和最终指标可使用 float64。
+6. 避免同时保留不必要的多个 1024×1024×128 副本。
+7. 若使用 chunk，chunk 边界必须增加足够 halo，结果不得出现接缝。
+8. 不得默认缩小输入。
+
+## 十八、Python metadata 推理入口
+
+新增：
+
+```text
+baselines/DSIFT-MFIF/infer_metadata.py
+```
+
+CLI 至少兼容：
+
+```text
+--metadata
+--output-dir
+--start-index
+--max-samples
+--overwrite
+--save-inputs
+--size-policy
+--device
+--chunk-rows
+```
+
+统一遵守：
+
+* `edit_image[0]` 为 A。
+* `edit_image[1]` 为 B。
+* `image` 为可选 GT。
+* `edit_image[2:]` 忽略。
+* 复用仓库公共 metadata 路径解析与 `sample_id` 逻辑。
+* 不要重新实现一个会导致 `target_squarecrop_pred.png` 全部覆盖的旧 sample ID 逻辑。
+* 输出名称必须唯一。
+* 输出：
+
+  * `*_pred.png`
+  * `inference_manifest.csv`
+  * `inference_manifest.json`
+  * `errors.jsonl`
+  * `run_config.json`
+* manifest 字段与 IFCNN 等方法兼容。
+* 单样本失败不能中断整批，除非 `--strict`。
+
+## 十九、修改所有 DSIFT 调用点
+
+修改：
+
+```text
+scripts/pipelines/dsift.sh
+run_infer_metadata_v3.sh
+```
+
+删除：
+
+```bash
+require_cmd matlab
+command -v matlab
+matlab -batch
+```
+
+改为调用：
+
+```bash
+"$PYTHON" "$ROOT/baselines/DSIFT-MFIF/infer_metadata.py" ...
+```
+
+增加可配置变量：
+
+```text
+DSIFT_DEVICE
+DSIFT_CHUNK_ROWS
+DSIFT_SCALE
+DSIFT_BLOCK_SIZE
+DSIFT_MATCHING
+```
+
+默认值必须保持论文当前配置：
+
+```text
+scale=48
+block_size=8
+matching=1
+```
+
+`RUN_TRAIN=1` 仍然只提示 DSIFT 是非学习方法并跳过训练。
+
+---
+
+# 第五部分：测试要求
+
+## 二十、传统指标单元测试
+
+为每个指标至少加入以下输入：
+
+1. `F=A`
+2. `F=B`
+3. `F=(A+B)/2`
+4. A/B/F 全黑
+5. A/B/F 常量但数值不同
+6. 水平梯度
+7. 垂直梯度
+8. checkerboard
+9. 单像素 impulse
+10. 固定 seed 随机图
+11. RGB 输入
+12. 非方形输入
+
+测试内容包括：
+
+* 输出为 Python float。
+* 不应无故返回复数。
+* 非退化输入结果有限。
+* A/B 交换后，理论上应对称的指标保持对称。
+* 尺寸不一致明确报错。
+* 常量输入不会崩溃。
+* 同样输入重复运行结果完全一致。
+* 各指标不会错误地读取 GT。
+
+不要凭印象强制错误的 `[0,1]` 范围断言；每个指标只检查其理论允许范围。
+
+## 二十一、MATLAB parity 工具
+
+虽然当前机器没有 MATLAB，但仍要增加一个可选开发工具：
+
+```text
+tools/compare_python_matlab_metrics.py
+```
+
+当另一台机器有 MATLAB 时，可以：
+
+1. 对同一批 A/B/F 同时运行旧 MATLAB 指标和新 Python 指标。
+2. 输出：
+
+   * Python 值
+   * MATLAB 值
+   * 绝对误差
+   * 相对误差
+   * pass/fail
+3. 每个指标可设置独立 tolerance。
+4. 当前无 MATLAB 时明确 skip，不能失败。
+
+在没有实际跑过 parity 前，README 不得声称“与 MATLAB 完全一致”；应写：
+
+```text
+faithful Python port; MATLAB numerical parity pending/verified per metric
+```
+
+在 `run_metadata.json` 中也记录 parity 状态。
+
+## 二十二、DSIFT 测试
+
+测试：
+
+1. 两张完全相同图：
+
+   * 输出应与输入相同或仅有可解释的 uint8 数值误差。
+2. A 清晰、B 高斯模糊。
+3. B 清晰、A 高斯模糊。
+4. 左半 A 清晰、右半 B 清晰的合成图。
+5. RGB 输入。
+6. 灰度输入。
+7. 非方形输入。
+8. 小图边界。
+9. 尺寸不一致的三个 size policy。
+10. 同样 seed/参数重复运行输出一致。
+11. 输出尺寸等于协议规定尺寸。
+12. manifest 正确且文件名唯一。
+
+检查仓库现有：
+
+```text
+baselines/DSIFT-MFIF/sourceimages
+baselines/DSIFT-MFIF/results
+```
+
+如果包含官方输入与 MATLAB 输出样例，则加入 Python 输出与官方结果的对比测试：
+
+* 完全一致时使用 exact。
+* 存在浮点差异时同时报告：
+
+  * MAE
+  * PSNR
+  * decision-map disagreement ratio
+* 不得为了让测试通过而放宽到毫无意义的 tolerance。
+
+## 二十三、端到端 smoke
+
+至少增加并实际运行：
+
+```bash
+python -m pytest -q
+```
+
+以及 Python-only DSIFT smoke：
+
+```bash
+python baselines/DSIFT-MFIF/infer_metadata.py \
+  --metadata baselines/smoke_metadata/metadata.json \
+  --output-dir /tmp/dsift_python_smoke \
+  --max-samples 2 \
+  --overwrite 1 \
+  --device cpu
+```
+
+检查：
+
+```bash
+test "$(find /tmp/dsift_python_smoke -name '*_pred.png' | wc -l)" -eq 2
+test -f /tmp/dsift_python_smoke/inference_manifest.csv
+```
+
+源图指标 smoke：
+
+```bash
+python mfif_eval_toolkit/evaluate.py \
+  --manifest <生成的两样本manifest> \
+  --metrics qmi,qsf,qs,qcb,qabf,qabf_analysis,qncie,qg,qp,qe,qviff,ms_ssim_src \
+  --source-metrics-on-gt \
+  --output-dir /tmp/python_source_metrics_smoke
+```
+
+要求：
+
+* 12 个指标列都存在。
+* 不能出现 MATLAB missing。
+* 不能出现整行全部 NaN。
+* `summary.csv` 正常产生。
+* `failures=0`；若某个退化测试样本理论上产生 NaN，必须在测试数据或错误协议中明确处理。
+
+然后测试 pipeline：
+
+```bash
+RUN_TRAIN=0 \
+RUN_INFER=1 \
+RUN_EVAL=1 \
+TEST_META=baselines/smoke_metadata/metadata.json \
+OUTPUT_ROOT=/tmp/dsift_pipeline_python \
+MAX_SAMPLES=2 \
+EVAL_SPECS='Smoke|gt|baselines/smoke_metadata/metadata.json|DSIFT|all' \
+EVAL_EXTRA_ARGS='--source-metrics-on-gt' \
+bash scripts/pipelines/dsift.sh
+```
+
+整个命令不得查找 MATLAB。
+
+---
+
+# 第六部分：文档和兼容性
+
+## 二十四、更新文档
+
+至少更新：
+
+```text
+README.md
+baselines/README.md
+scripts/pipelines/README.md
+mfif_eval_toolkit/README.md
+```
+
+删除或修改所有：
+
+```text
+DSIFT requires MATLAB
+传统指标依赖 MATLAB
+Image Processing Toolbox required
+```
+
+改为说明：
+
+* 所有正式推理和评测均为 Python-only。
+* QCNN 仍需官方 PyTorch 模型和权重。
+* `pytorch-msssim` 用于 GT MS-SSIM。
+* 传统指标是对公开 MATLAB 实现的 Python 移植。
+* 每个指标的原函数映射。
+* 当前 parity 状态。
+* 如何运行 GT + 双源融合全部指标。
+* 如何运行 Python DSIFT。
+
+提供 IFCNN 已有结果只做评测的示例：
+
+```bash
+RUN_TRAIN=0 \
+RUN_INFER=0 \
+RUN_EVAL=1 \
+EVAL_SPECS="CommonBlurGeometryVal200|gt|<metadata>|IFCNN|all" \
+EVAL_EXTRA_ARGS="--source-metrics-on-gt --qcnn-device cuda:0 --lpips-net alex" \
+bash scripts/pipelines/ifcnn.sh
+```
+
+该命令不得需要 `--matlab-command`。
+
+## 二十五、运行时 MATLAB 零依赖审计
+
+完成后执行：
+
+```bash
+rg -n --hidden \
+  'require_cmd[[:space:]]+matlab|command -v matlab|matlab[[:space:]]+-batch|subprocess.*matlab|backend.*matlab' \
+  --glob '!**/.git/**'
+```
+
+正式运行文件中必须为 0。
+
+允许出现 `MATLAB` 文本的位置仅限：
+
+* 原始 `.m` 参考文件。
+* 来源说明。
+* 可选 parity 工具。
+* 历史迁移说明。
+
+再执行：
+
+```bash
+python mfif_eval_toolkit/evaluate.py --list-metrics
+```
+
+预期 12 个传统源图指标的 backend 都是：
+
+```text
+python_source
+```
+
+而不是：
+
+```text
+matlab
+```
+
+## 二十六、禁止事项
+
+禁止：
+
+* 只把 `backend="matlab"` 改成 `"python"`，但不实现公式。
+* 缺 MATLAB 时自动跳过指标却仍显示成功。
+* 返回 0、NaN 或随机数占位。
+* 使用简单 SSIM/梯度替代复杂指标。
+* 合并 `qabf`、`qabf_analysis`、`qg`。
+* 把 `ms_ssim_src` 当作 GT MS-SSIM。
+* 用 OpenCV 普通 SIFT 代替原 DenseSIFT。
+* 默认 resize 到较小分辨率。
+* 修改用户 metadata、图像或 checkpoint。
+* 删除现有训练中的模型代码。
+* 引入 Octave 作为“无 MATLAB”替代。
+* 在测试中需要联网。
+* 未运行测试就声称完成。
+
+---
+
+# 第七部分：最终自查报告
+
+修改完成后，输出完整报告，必须包括：
+
+1. 基础 commit SHA。
+2. 新分支名。
+3. 修改文件列表。
+4. 12 个指标逐项实现位置。
+5. 每个指标原 MATLAB 映射。
+6. DSIFT 每个 MATLAB 函数对应的 Python 函数。
+7. 新增依赖。
+8. 所有测试命令和真实输出摘要。
+9. Python-only smoke 输出路径。
+10. MATLAB 零依赖 `rg` 审计结果。
+11. 数值 parity 已验证和未验证的指标列表。
+12. 已知数值差异及原因。
+13. 1024×1024 DSIFT 的运行时间和峰值内存。
+14. `git diff --check` 结果。
+15. `git status --short` 结果。
+16. 最终 commit SHA。
+
+最后提交一个独立 commit，建议提交信息：
+
+```text
+feat: replace MATLAB metrics and DSIFT with Python ports
+```
+
+不要只生成计划；直接完成修改、测试、自查并提交。
