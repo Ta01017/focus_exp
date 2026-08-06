@@ -52,7 +52,7 @@ python -m pip install -r requirements.txt
 bash prepare_backends.sh
 ```
 
-传统无 GT 指标使用原始 MATLAB 实现，需要 MATLAB 和 Image Processing Toolbox。这样做是为了避免自行改写公式导致与论文数值不一致。QCNN 使用 TPAMI 论文官方 PyTorch 模型和权重。
+传统无 GT 指标使用仓库内 Python port，原 MATLAB 实现仅作为 reference only, not used at runtime。当前状态为 faithful Python port; MATLAB numerical parity pending/verified per metric。QCNN 使用 TPAMI 论文官方 PyTorch 模型和权重。
 
 ## 4. Manifest 格式
 

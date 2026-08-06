@@ -1,3 +1,4 @@
+% reference only, not used at runtime
 function F = DSIFT_Fusion(A,B,scale,blocksize,matching)
 
 img1=double(A);
@@ -29,8 +30,8 @@ else
 end
 
 if size(A,3)>1
-    finalMap=repmat(finalMap,[1 1 3]); 
+    finalMap=repmat(finalMap,[1 1 3]);
 end
 
-imgf=img1.*finalMap+img2.*(1-finalMap); 
+imgf=img1.*finalMap+img2.*(1-finalMap);
 F=uint8(imgf);

@@ -45,7 +45,7 @@ python baselines\ZMFF\infer_metadata.py --metadata baselines\smoke_metadata\meta
 baselines\DSIFT-MFIF\run_metadata_dsift.bat baselines\smoke_metadata\metadata.json outputs\DSIFT 0 2
 ```
 
-IFCNN 源码中没有完整官方训练入口，因此没有编造监督训练流程；可复用公共 `MetadataFusionDataset`，但可靠范围仅为官方 checkpoint 推理。DSIFT 是非学习 MATLAB 方法。ZMFF 是逐样本 zero-shot 优化，两者都没有监督训练入口。
+IFCNN 源码中没有完整官方训练入口，因此没有编造监督训练流程；可复用公共 `MetadataFusionDataset`，但可靠范围仅为官方 checkpoint 推理。DSIFT 是非学习 Python 方法，原 MATLAB 文件仅作为 reference only, not used at runtime。ZMFF 是逐样本 zero-shot 优化，两者都没有监督训练入口。
 
 正式一键入口为根目录 `run_train_metadata_v3.sh` 与 `run_infer_metadata_v3.sh`。SwinFusion preserves its official single-channel luminance training protocol. Metadata RGB images are converted to Y. The GT luminance is used for validation, while the original MFF source-based loss is preserved for training. 推理使用 `official-y` 或 `metadata-y`，融合 Y 使用输入 A 的 Cb/Cr 恢复为 RGB PNG。FusionDiff/ReDiffuse 保持 RGB `[-1,1]`、完整 checkpoint 和彼此分离的 `--init-checkpoint`/`--resume`。
 

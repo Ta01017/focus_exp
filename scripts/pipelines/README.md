@@ -7,7 +7,7 @@
 - `rediffuse.sh`: supervised metadata-RGB training, inference, evaluation
 - `ifcnn.sh`: official/pretrained inference and evaluation
 - `zmff.sh`: zero-shot per-sample optimization inference and evaluation
-- `dsift.sh`: MATLAB non-learning inference and evaluation
+- `dsift.sh`: Python DSIFT-MFIF non-learning inference and evaluation
 
 所有脚本都支持三个阶段：
 
@@ -162,4 +162,4 @@ EVAL_SPECS=$'Lytro|no_gt|/data/meta/lytro.json|DSIFT|all_no_gt' \
 bash scripts/pipelines/dsift.sh
 ```
 
-DSIFT 需要 MATLAB，传统无 GT 指标评估也需要 MATLAB。
+DSIFT 正式推理入口为 Python-only。传统无 GT 指标评估也为 Python-only；QCNN 仍需官方 PyTorch 模型和权重。

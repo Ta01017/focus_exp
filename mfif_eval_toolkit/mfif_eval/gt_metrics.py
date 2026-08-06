@@ -4,12 +4,12 @@ from functools import lru_cache
 from typing import Dict, Iterable
 
 import numpy as np
-import torch
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 
 @lru_cache(maxsize=2)
 def _lpips_model(net: str = "alex"):
+    import torch
     try:
         import lpips
     except ImportError as exc:
@@ -22,6 +22,7 @@ def _lpips_model(net: str = "alex"):
 
 
 def _to_tensor01(image: np.ndarray) -> torch.Tensor:
+    import torch
     tensor = torch.from_numpy(np.ascontiguousarray(image)).permute(2, 0, 1).float() / 255.0
     return tensor.unsqueeze(0)
 
@@ -48,8 +49,13 @@ def compute_gt_metrics(
         values["mae"] = float(np.mean(np.abs(fused_f - gt_f)))
 
     if "ssim" in requested:
+        win = min(7, fused_f.shape[0], fused_f.shape[1])
+        if win % 2 == 0:
+            win -= 1
+        if win < 3:
+            raise ValueError(f"SSIM requires at least 3x3 images; got {fused_f.shape[:2]}")
         values["ssim"] = float(
-            structural_similarity(gt_f, fused_f, channel_axis=2, data_range=1.0)
+            structural_similarity(gt_f, fused_f, channel_axis=2, data_range=1.0, win_size=win)
         )
 
     if "lpips" in requested:

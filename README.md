@@ -46,7 +46,7 @@ python -m pip install -r requirements.txt
 bash prepare_backends.sh
 ```
 
-无 GT 传统指标依赖 MATLAB 和 Image Processing Toolbox。`ReDiffuse` 需要 Python 3.8 环境，例如：
+正式推理和评估路径为 Python-only。无 GT 传统指标是对公开 MATLAB 实现的 Python 移植，当前状态为 faithful Python port; MATLAB numerical parity pending/verified per metric。`ReDiffuse` 需要 Python 3.8 环境，例如：
 
 ```bash
 REDIFFUSE_PYTHON=/tmp/mamba-root/envs/rediffuse38/bin/python
@@ -206,7 +206,7 @@ EVAL_SPECS=$'Lytro|no_gt|/data/meta/lytro.json|DSIFT|all_no_gt' \
 bash scripts/pipelines/dsift.sh
 ```
 
-DSIFT 需要 MATLAB。
+DSIFT 正式推理入口为 Python-only。原 `.m` 文件仅保留为 reference only, not used at runtime。
 
 ## 11. 多验证集怎么跑
 

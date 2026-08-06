@@ -1,4 +1,5 @@
-function f=SF(A) 
+% reference only, not used at runtime
+function f=SF(A)
 %spatial frequency
 
 A=double(A);

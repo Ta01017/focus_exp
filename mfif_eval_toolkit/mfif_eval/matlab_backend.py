@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Optional development-only parity helper.
+
+This module is reference only, not used at runtime by the official evaluator.
+It exists so developers with MATLAB can compare old reference code against the
+Python source-metric port.
+"""
+
 import csv
 import shutil
 import subprocess

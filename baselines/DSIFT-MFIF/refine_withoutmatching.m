@@ -1,3 +1,4 @@
+% reference only, not used at runtime
 function fusion_map = refine_withoutmatching(img1,img2,initMap1,initMap2)
 
 [h,w]=size(img1);
@@ -13,7 +14,7 @@ for j=1:h
                 fusion_map(j,i)=1;
             else
                 fusion_map(j,i)=0;
-            end               
+            end
         end
     end
 end

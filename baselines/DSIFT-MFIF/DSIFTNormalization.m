@@ -1,3 +1,4 @@
+% reference only, not used at runtime
 function norm_SIFTFeatureVector = DSIFTNormalization(SIFTFeatureVector)
 %Function for dense SIFT normalization. Please note that this function is
 %edited based on C. Liu's code, which is available on http://people.csail.mit.edu/celiu/ECCV2008/

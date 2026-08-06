@@ -8,15 +8,16 @@ INFER_OUTPUT="$OUTPUT_ROOT/infer"
 EVAL_OUTPUT="$OUTPUT_ROOT/eval/$METHOD_NAME"
 
 if [[ "$RUN_TRAIN" == 1 ]]; then
-  echo "[TRAIN] DSIFT-MFIF is a non-learning MATLAB method; skip training."
+  echo "[TRAIN] DSIFT-MFIF is a non-learning Python method; skip training."
 fi
 
 if [[ "$RUN_INFER" == 1 ]]; then
   require_file "$TEST_META" TEST_META
-  require_cmd matlab
   METHOD=dsift METADATA="$TEST_META" OUTPUT_ROOT="$INFER_OUTPUT" PYTHON="$PYTHON" \
     CUDA_VISIBLE_GPU="$CUDA_VISIBLE_GPU" START_INDEX="$START_INDEX" MAX_SAMPLES="$MAX_SAMPLES" \
-    OVERWRITE="$OVERWRITE" bash "$ROOT/run_infer_metadata_v3.sh"
+    OVERWRITE="$OVERWRITE" DSIFT_DEVICE="${DSIFT_DEVICE:-auto}" DSIFT_CHUNK_ROWS="${DSIFT_CHUNK_ROWS:-0}" \
+    DSIFT_SCALE="${DSIFT_SCALE:-48}" DSIFT_BLOCK_SIZE="${DSIFT_BLOCK_SIZE:-8}" \
+    DSIFT_MATCHING="${DSIFT_MATCHING:-1}" bash "$ROOT/run_infer_metadata_v3.sh"
 fi
 
 if [[ "$RUN_EVAL" == 1 ]]; then

@@ -1,3 +1,4 @@
+% reference only, not used at runtime
 function [initMap1,initMap2] = generate_initmap(dsift1,dsift2,blocksize)
 
 s1=sum(dsift1,3);
@@ -16,22 +17,22 @@ for ii = 1:length(gridx)
     for jj = 1:length(gridy)
         xx = gridx(ii);
         yy = gridy(jj);
-        
+
         block1 = s1(yy:yy+blocksize-1, xx:xx+blocksize-1);
         block2 = s2(yy:yy+blocksize-1, xx:xx+blocksize-1);
-        
+
         a=sum(sum(block1));
-        b=sum(sum(block2)); 
+        b=sum(sum(block2));
 
         if a>b
             score_block1=ones(blocksize,blocksize);
-            scoreMat1(yy:yy+blocksize-1, xx:xx+blocksize-1) = scoreMat1(yy:yy+blocksize-1, xx:xx+blocksize-1) + score_block1;    
+            scoreMat1(yy:yy+blocksize-1, xx:xx+blocksize-1) = scoreMat1(yy:yy+blocksize-1, xx:xx+blocksize-1) + score_block1;
         end
-        
+
         if b>a
             score_block2=ones(blocksize,blocksize);
             scoreMat2(yy:yy+blocksize-1, xx:xx+blocksize-1) = scoreMat2(yy:yy+blocksize-1, xx:xx+blocksize-1) + score_block2;
-        end 
+        end
         cntMat(yy:yy+blocksize-1, xx:xx+blocksize-1) = cntMat(yy:yy+blocksize-1, xx:xx+blocksize-1) + 1;
     end
 end

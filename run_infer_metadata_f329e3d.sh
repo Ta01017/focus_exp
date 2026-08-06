@@ -156,15 +156,22 @@ run_rediffuse() {
 }
 
 run_dsift() {
-  local repo="$ROOT/baselines/DSIFT-MFIF"
-  command -v matlab >/dev/null 2>&1 || { missing "MATLAB not found; DSIFT skipped"; return; }
   echo "============================================================"
   echo "[INFER] DSIFT"
   echo "============================================================"
-  if ! (
-    cd "$repo"
-    matlab -batch "infer_metadata('metadata','${METADATA//\'/\'\'}','output_dir','${OUTPUT_ROOT//\'/\'\'}/DSIFT','start_index',$START_INDEX,'max_samples',$MAX_SAMPLES,'overwrite',$OVERWRITE,'save_inputs',$SAVE_INPUTS,'size_policy','$SIZE_POLICY')"
-  ); then
+  if ! "$PYTHON" "$ROOT/baselines/DSIFT-MFIF/infer_metadata.py" \
+    --metadata "$METADATA" \
+    --output-dir "$OUTPUT_ROOT/DSIFT" \
+    --start-index "$START_INDEX" \
+    --max-samples "$MAX_SAMPLES" \
+    --overwrite "$OVERWRITE" \
+    --save-inputs "$SAVE_INPUTS" \
+    --size-policy "$SIZE_POLICY" \
+    --device "${DSIFT_DEVICE:-auto}" \
+    --chunk-rows "${DSIFT_CHUNK_ROWS:-0}" \
+    --scale "${DSIFT_SCALE:-48}" \
+    --block-size "${DSIFT_BLOCK_SIZE:-8}" \
+    --matching "${DSIFT_MATCHING:-1}"; then
     echo "[FAIL] DSIFT" >&2
     failed=$((failed + 1))
     [[ "$STRICT" == "1" ]] && exit 4

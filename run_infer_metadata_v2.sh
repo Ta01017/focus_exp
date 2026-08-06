@@ -22,8 +22,7 @@ unavailable() {
 run_py() { local name="$1"; shift; echo "[INFER] $name $*"; CUDA_VISIBLE_DEVICES="$CUDA_VISIBLE_GPU" "$@" || { failed=$((failed+1)); [[ "$STRICT" != "1" ]]; }; }
 
 run_dsift() {
-  command -v matlab >/dev/null || { unavailable "DSIFT requires MATLAB"; return; }
-  (cd "$ROOT/baselines/DSIFT-MFIF" && matlab -batch "infer_metadata('metadata','$METADATA','output_dir','$OUTPUT_ROOT/DSIFT','start_index',$START_INDEX,'max_samples',$MAX_SAMPLES,'overwrite',$OVERWRITE)")
+  run_py DSIFT "$PYTHON" "$ROOT/baselines/DSIFT-MFIF/infer_metadata.py" --metadata "$METADATA" --output-dir "$OUTPUT_ROOT/DSIFT" --start-index "$START_INDEX" --max-samples "$MAX_SAMPLES" --overwrite "$OVERWRITE" --device "${DSIFT_DEVICE:-auto}" --chunk-rows "${DSIFT_CHUNK_ROWS:-0}" --scale "${DSIFT_SCALE:-48}" --block-size "${DSIFT_BLOCK_SIZE:-8}" --matching "${DSIFT_MATCHING:-1}"
 }
 run_ifcnn() {
   local ckpt="${IFCNN_CKPT:-$ROOT/baselines/IFCNN/Code/snapshots/IFCNN-MAX.pth}"

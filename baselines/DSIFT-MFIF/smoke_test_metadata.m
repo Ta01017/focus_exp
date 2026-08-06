@@ -1,3 +1,4 @@
+% reference only, not used at runtime
 function smoke_test_metadata
 root=tempname; mkdir(root); mkdir(fullfile(root,'images')); mkdir(fullfile(root,'out'));
 imwrite(uint8(zeros(16,20,3)),fullfile(root,'images','a.png')); imwrite(uint8(ones(16,20,3)*255),fullfile(root,'images','b.png'));

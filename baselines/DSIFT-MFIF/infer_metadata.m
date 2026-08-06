@@ -1,3 +1,4 @@
+% reference only, not used at runtime
 function infer_metadata(varargin)
 % Batch metadata.json entry point; keeps the author's DSIFT code untouched.
 p=inputParser; addParameter(p,'metadata',''); addParameter(p,'output_dir','');

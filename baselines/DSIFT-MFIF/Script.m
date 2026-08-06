@@ -1,3 +1,4 @@
+% reference only, not used at runtime
 close all;
 clear all;
 clc;

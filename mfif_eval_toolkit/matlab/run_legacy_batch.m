@@ -1,3 +1,4 @@
+% reference only, not used at runtime
 function run_legacy_batch(job_csv, out_csv, tpami_root, objective_root, metrics_csv)
 %RUN_LEGACY_BATCH Evaluate published no-GT image-fusion metrics in batch.
 %

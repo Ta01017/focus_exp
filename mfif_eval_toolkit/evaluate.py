@@ -25,7 +25,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Unified GT/no-GT evaluator for multi-focus image fusion."
     )
-    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--manifest", type=Path)
     parser.add_argument(
         "--metrics", default="all",
         help="Comma-separated metric IDs or sets. Sets: " + ", ".join(sorted(METRIC_SETS)),
@@ -33,7 +33,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--datasets", default="all", help="Comma-separated dataset names or all")
     parser.add_argument("--methods", default="all", help="Comma-separated method names or all")
     parser.add_argument("--mode", choices=["all", "gt", "no_gt"], default="all")
-    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--tpami-root", type=Path, default=root / "third_party" / "MFIF-Metrics")
     parser.add_argument(
         "--objective-root", type=Path,
@@ -53,6 +53,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    root = Path(__file__).resolve().parent
     if args.list_metrics:
         for name, spec in METRICS.items():
             print(f"{name:16s} {spec.mode:6s} {spec.backend:7s} {spec.display:20s} {spec.source}")
@@ -60,8 +61,12 @@ def main() -> int:
         for name, members in METRIC_SETS.items():
             print(f"{name:16s} {','.join(members)}")
         return 0
+    if args.manifest is None or args.output_dir is None:
+        raise SystemExit("--manifest and --output-dir are required unless --list-metrics is used")
 
     requested_metrics = expand_metrics(csv_list(args.metrics))
+    if args.matlab_command != "matlab" or args.objective_root != root / "third_party" / "Objective-evaluation-for-image-fusion":
+        print("[WARNING] --matlab-command and --objective-root are deprecated; metrics are Python-only now.")
     frame = load_manifest(args.manifest)
     datasets = None if args.datasets == "all" else csv_list(args.datasets)
     methods = None if args.methods == "all" else csv_list(args.methods)
@@ -81,7 +86,6 @@ def main() -> int:
     if skipped:
         print(f"[INFO] Skipping metrics not applicable to selected modes: {','.join(skipped)}")
 
-    root = Path(__file__).resolve().parent
     args.output_dir.mkdir(parents=True, exist_ok=True)
     result = evaluate(
         frame,

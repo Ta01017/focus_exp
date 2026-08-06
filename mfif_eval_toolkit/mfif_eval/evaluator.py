@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import traceback
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -11,9 +10,9 @@ from tqdm import tqdm
 
 from .gt_metrics import compute_gt_metrics
 from .io_utils import ensure_same_shape, load_rgb, resolve_path
-from .matlab_backend import run_matlab_metrics
-from .qcnn import QCNNMetric
 from .registry import METRICS
+from .source_metrics import PYTHON_SOURCE_METRICS_VERSION
+from .source_metrics.backend import MATLAB_MAPPING, PARITY_STATUS, run_python_source_metrics
 
 REQUIRED_COLUMNS = {"dataset", "sample_id", "mode", "method", "source_a", "source_b", "fused"}
 
@@ -134,8 +133,8 @@ def evaluate(
     output = frame.copy()
     errors: Dict[int, List[str]] = {int(row_id): [] for row_id in output["row_id"]}
 
-    gt_metrics = [m for m in metrics if METRICS[m].backend == "python"]
-    matlab_metrics = [m for m in metrics if METRICS[m].backend == "matlab"]
+    gt_metrics = [m for m in metrics if METRICS[m].backend == "python_gt"]
+    source_metrics = [m for m in metrics if METRICS[m].backend == "python_source"]
     need_qcnn = "qcnn" in metrics
 
     for metric in metrics:
@@ -168,48 +167,46 @@ def evaluate(
                 fused = load_rgb(Path(row["fused"]))
                 gt = load_rgb(Path(row["gt"]))
                 ensure_same_shape(fused, gt)
-                values = compute_gt_metrics(fused, gt, applicable, lpips_net=lpips_net)
-                for metric, value in values.items():
-                    output.at[idx, metric] = value
+                for metric in applicable:
+                    try:
+                        values = compute_gt_metrics(fused, gt, [metric], lpips_net=lpips_net)
+                        if metric in values:
+                            output.at[idx, metric] = values[metric]
+                    except Exception as exc:
+                        errors[int(row["row_id"])].append(
+                            f"{metric}: {type(exc).__name__}: {exc}"
+                        )
+                        if not continue_on_error:
+                            raise
             except Exception as exc:
                 errors[int(row["row_id"])].append(f"python: {type(exc).__name__}: {exc}")
                 if not continue_on_error:
                     raise
 
-    if matlab_metrics:
-        matlab_mask = output["mode"] == "no_gt"
+    if source_metrics:
+        source_mask = output["mode"] == "no_gt"
         if source_metrics_on_gt:
-            matlab_mask = matlab_mask | (output["mode"] == "gt")
-        subset = output[matlab_mask].copy()
+            source_mask = source_mask | (output["mode"] == "gt")
+        subset = output[source_mask].copy()
         if not subset.empty:
-            try:
-                legacy = run_matlab_metrics(
-                    subset,
-                    matlab_metrics,
-                    toolkit_root=toolkit_root,
-                    tpami_root=tpami_root,
-                    objective_root=objective_root,
-                    matlab_command=matlab_command,
-                )
-                index_by_row = {int(rid): idx for idx, rid in enumerate(output["row_id"].tolist())}
-                for row_id, values in legacy.iterrows():
-                    idx = index_by_row[int(row_id)]
-                    for metric in matlab_metrics:
-                        if metric in values:
-                            output.at[idx, metric] = values[metric]
-                    message = str(values.get("legacy_error", "")).strip()
-                    if message and message.lower() != "nan":
-                        errors[int(row_id)].append(message)
-            except Exception as exc:
-                if not continue_on_error:
-                    raise
-                message = f"matlab batch: {type(exc).__name__}: {exc}"
-                for row_id in subset["row_id"]:
+            source_values = run_python_source_metrics(subset, source_metrics)
+            index_by_row = {int(rid): idx for idx, rid in enumerate(output["row_id"].tolist())}
+            for row_id, values in source_values.iterrows():
+                idx = index_by_row[int(row_id)]
+                for metric in source_metrics:
+                    if metric in values:
+                        output.at[idx, metric] = values[metric]
+                message = str(values.get("source_error", "")).strip()
+                if message and message.lower() != "nan":
                     errors[int(row_id)].append(message)
+                    if not continue_on_error:
+                        raise RuntimeError(message)
 
     if need_qcnn:
         qcnn = None
         try:
+            from .qcnn import QCNNMetric
+
             qcnn = QCNNMetric(tpami_root, device=qcnn_device)
         except Exception as exc:
             if not continue_on_error:
@@ -259,6 +256,11 @@ def write_metadata(path: Path, metrics: List[str], args: Dict) -> None:
             }
             for metric in metrics
         ],
+        "python_source_metrics": {
+            "version": PYTHON_SOURCE_METRICS_VERSION,
+            "matlab_mapping": {metric: MATLAB_MAPPING.get(metric) for metric in metrics if metric in MATLAB_MAPPING},
+            "parity_status": {metric: PARITY_STATUS.get(metric) for metric in metrics if metric in PARITY_STATUS},
+        },
         "arguments": {k: str(v) if isinstance(v, Path) else v for k, v in args.items()},
     }
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
