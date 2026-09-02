@@ -47,7 +47,7 @@ class MetadataFusionDataset(Dataset):
     def __init__(self, metadata, mode, *, size=None, crop_size=None, channels=3,
                  value_range="zero_one", size_policy="error", seed=0,
                  start_index=0, max_samples=-1, augment=False,
-                 operation_order="resize_then_crop"):
+                 operation_order="resize_then_crop", pad_multiple=None):
         if mode not in {"train", "val"}:
             raise ValueError("MetadataFusionDataset mode must be train or val")
         self.metadata_path, self.items = load_metadata(metadata, start_index, max_samples)
@@ -55,6 +55,7 @@ class MetadataFusionDataset(Dataset):
         self.channels, self.value_range = channels, value_range
         self.size_policy, self.seed, self.augment = size_policy, seed, augment
         self.operation_order = operation_order
+        self.pad_multiple = pad_multiple
         self.epoch = 0
         self._access_counter = 0
 
@@ -80,7 +81,8 @@ class MetadataFusionDataset(Dataset):
         sample = synchronized_preprocess(
             sample, size=self.size, crop_size=self.crop_size, mode=self.mode,
             seed=transform_seed, hflip=self.augment, vflip=self.augment,
-            rotate90=self.augment, operation_order=self.operation_order)
+            rotate90=self.augment, operation_order=self.operation_order,
+            pad_multiple=self.pad_multiple)
         a = _tensor(sample["image_a"], self.channels, self.value_range)
         b = _tensor(sample["image_b"], self.channels, self.value_range)
         target = _tensor(sample["target"], self.channels, self.value_range)

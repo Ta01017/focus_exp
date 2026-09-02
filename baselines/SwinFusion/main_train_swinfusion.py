@@ -55,8 +55,10 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
     parser.add_argument('--start-index', type=int, default=0)
     parser.add_argument('--max-samples', type=int, default=-1)
     parser.add_argument('--num-workers', type=int)
+    parser.add_argument('--train-crop-size', type=int)
+    parser.add_argument('--train-batch-size', type=int)
     parser.add_argument('--seed', type=int)
-    parser.add_argument('--max-train-steps', type=int, default=-1)
+    parser.add_argument('--max-train-steps', type=int, default=20000)
     parser.add_argument('--output-dir')
     parser.add_argument('--init-mode', choices=('scratch', 'official', 'resume'), default='scratch')
     parser.add_argument('--init-checkpoint-dir')
@@ -85,6 +87,14 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
         opt['datasets']['test']['max_samples'] = args.max_samples
         if args.num_workers is not None:
             opt['datasets']['train']['dataloader_num_workers'] = args.num_workers
+        if args.train_crop_size is not None:
+            if args.train_crop_size < 8 or args.train_crop_size % 8:
+                raise ValueError('--train-crop-size must be >= 8 and divisible by 8')
+            opt['datasets']['train']['H_size'] = args.train_crop_size
+        if args.train_batch_size is not None:
+            if args.train_batch_size < 1:
+                raise ValueError('--train-batch-size must be positive')
+            opt['datasets']['train']['dataloader_batch_size'] = args.train_batch_size
 
     current_step, run_manifest = configure_training_run(opt, args)
     print('[INIT] mode={init_mode} G={loaded_G} E={loaded_E} optimizer={loaded_optimizerG}'.format(**run_manifest))
@@ -243,6 +253,12 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
             # -------------------------------
             model.optimize_parameters(current_step)
             if args.max_train_steps >= 0 and current_step >= args.max_train_steps:
+                if opt['rank'] == 0:
+                    model.save(current_step)
+                    torch.save({'current_step': current_step,
+                                'schedulers': [scheduler.state_dict() for scheduler in model.schedulers]},
+                               Path(opt['path']['models']) / 'training_state.pt')
+                    print(f'final checkpoint saved at step {current_step}')
                 for test_data in test_loader:
                     model.feed_data(test_data, need_GT=True, phase='test')
                     model.test()

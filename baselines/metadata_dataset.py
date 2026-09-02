@@ -9,6 +9,7 @@ import time
 import random
 from pathlib import Path, PureWindowsPath
 
+import numpy as np
 from PIL import Image, ImageOps
 
 
@@ -161,12 +162,37 @@ def prepare_item(item, index, metadata_path, size_policy="error", mode="infer"):
 
 def synchronized_preprocess(sample, size=None, crop_size=None, mode="val", seed=None,
                             hflip=False, vflip=False, rotate90=False,
-                            operation_order="resize_then_crop"):
+                            operation_order="resize_then_crop", pad_multiple=None):
     """Apply one set of geometry parameters to A, B, and GT."""
     images = [sample["image_a"], sample["image_b"]]
     if sample.get("target") is not None:
         images.append(sample["target"])
     rng = random.Random(seed)
+    def pad_all(values):
+        width, height = values[0].size
+        target_width, target_height = width, height
+        if crop_size is not None:
+            crop = (crop_size, crop_size) if isinstance(crop_size, int) else tuple(crop_size)
+            target_width = max(target_width, crop[0])
+            target_height = max(target_height, crop[1])
+        if pad_multiple:
+            target_width = ((target_width + pad_multiple - 1) // pad_multiple) * pad_multiple
+            target_height = ((target_height + pad_multiple - 1) // pad_multiple) * pad_multiple
+        if (target_width, target_height) == (width, height):
+            return values
+        left = (target_width - width) // 2
+        right = target_width - width - left
+        top = (target_height - height) // 2
+        bottom = target_height - height - top
+        result = []
+        for image in values:
+            array = np.asarray(image)
+            pads = ((top, bottom), (left, right))
+            if array.ndim == 3:
+                pads += ((0, 0),)
+            result.append(Image.fromarray(np.pad(array, pads, mode="edge")))
+        return result
+
     def resize_all(values):
         if size is None:
             return values
@@ -187,9 +213,9 @@ def synchronized_preprocess(sample, size=None, crop_size=None, mode="val", seed=
         return [image.crop((left, top, left+crop[0], top+crop[1])) for image in values]
 
     if operation_order == "resize_then_crop":
-        images = crop_all(resize_all(images))
+        images = crop_all(pad_all(resize_all(images)))
     elif operation_order == "crop_then_resize":
-        images = resize_all(crop_all(images))
+        images = resize_all(crop_all(pad_all(images)))
     else:
         raise ValueError("operation_order must be resize_then_crop or crop_then_resize")
     if mode == "train":

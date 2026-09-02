@@ -1,7 +1,5 @@
 import os
 from torch.utils.data import Dataset
-from torchvision import transforms
-import cv2
 import sys
 from pathlib import Path
 
@@ -10,19 +8,26 @@ from metadata_training import MetadataFusionDataset
 
 
 class MetadataMFI_Dataset(MetadataFusionDataset):
-    """FusionDiff adapter; preserves the original RGB, [-1, 1] contract."""
+    """FusionDiff RGB adapter with synchronized 256-pixel train crops."""
     def __init__(self, metadata, phase, resize, imgSzie, seed=0,
                  start_index=0, max_samples=-1, size_policy="error"):
         mode = "train" if phase == "train" else "val"
         super().__init__(metadata, mode, size=imgSzie if resize else None,
+                         crop_size=256 if mode == "train" else None,
                          channels=3, value_range="minus_one_one",
                          size_policy=size_policy, seed=seed,
-                         start_index=start_index, max_samples=max_samples)
+                         start_index=start_index, max_samples=max_samples,
+                         augment=mode == "train",
+                         operation_order="crop_then_resize",
+                         pad_multiple=8 if mode == "val" else None)
 
 
 class MFI_Dataset(Dataset):
     def __init__(self, datasetPath, phase, use_dataTransform, resize, imgSzie):
         super(MFI_Dataset, self).__init__()
+        global cv2
+        import cv2
+        from torchvision import transforms
         self.datasetPath = datasetPath
         self.phase = phase
         self.use_dataTransform = use_dataTransform

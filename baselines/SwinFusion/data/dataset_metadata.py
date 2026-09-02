@@ -19,4 +19,4 @@ class DatasetMetadataMFF(MetadataFusionDataset):
             size_policy=opt.get("size_policy") or "error",
             seed=opt.get("seed") or 0, start_index=opt.get("start_index") or 0,
             max_samples=opt.get("max_samples") if opt.get("max_samples") is not None else -1,
-            augment=mode == "train")
+            augment=mode == "train", pad_multiple=8 if mode == "val" else None)

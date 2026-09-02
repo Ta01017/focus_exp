@@ -13,7 +13,8 @@ class MetadataMFI_Dataset(MetadataFusionDataset):
         mode = "train" if phase == "train" else "val"
         super().__init__(metadata, mode, size=imgSzie if resize else None,
                          crop_size=256 if mode == "train" else None,
-                         channels=3, value_range="minus_one_one", augment=False,
+                         channels=3, value_range="minus_one_one", augment=mode == "train",
                          size_policy=size_policy, seed=seed,
                          start_index=start_index, max_samples=max_samples,
-                         operation_order="crop_then_resize")
+                         operation_order="crop_then_resize",
+                         pad_multiple=8 if mode == "val" else None)

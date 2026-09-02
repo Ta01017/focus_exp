@@ -238,7 +238,7 @@ if __name__ == '__main__':
     parser.add_argument("--max-samples", type=int, default=-1)
     parser.add_argument("--num-workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--max-train-steps", type=int, default=-1)
+    parser.add_argument("--max-train-steps", type=int, default=20000)
     parser.add_argument("--resume")
     parser.add_argument("--init-checkpoint")
     parser.add_argument("--allow-legacy-checkpoint", type=int, choices=(0,1), default=0)

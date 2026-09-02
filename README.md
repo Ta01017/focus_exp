@@ -2,6 +2,50 @@
 
 本仓库包含 6 个多焦点图像融合 baseline，并提供统一的 `metadata.json` 数据入口、训练脚本、推理脚本和评估工具。
 
+## 当前混合训练集一键运行
+
+服务器上的 `mfif_train_mix_v1` 与 `real_mfif_zedd_selfshot_v4_0901` 已有专用入口：
+
+```bash
+cd /path/to/focus_exp
+GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 bash run_mix_v1_all.sh
+```
+
+`GPUS` 可以传 1、2 或 3 张当前空闲卡，例如 `GPUS=2`、`GPUS=2,4`、`GPUS=1,3,6`；不传时会使用 `nvidia-smi` 列出的所有卡。SwinFusion 训练阶段使用这些卡做 DataParallel，之后 SwinFusion、IFCNN、ZMFF、DSIFT 按卡分组并行完成推理和评估。FusionDiff 与 ReDiffuse 不在该入口中。
+
+脚本默认数据路径正是：
+
+```text
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json
+```
+
+训练数据允许不同样本具有不同宽高。每个样本的 A/B/GT 会先校验同尺寸，再使用完全同步的补边、随机裁剪和增强。这里不是先把整张图拉伸放大：当宽或高小于裁剪窗口时，只在四周复制边缘像素补足；达到裁剪尺寸后，从 A/B/GT 的同一坐标裁出 patch。SwinFusion 默认裁剪 `128x128`，FusionDiff 和 ReDiffuse 默认裁剪 `256x256`；后两者按原配置在裁剪后统一为 `256x256`。验证推理按每张原图处理，只临时补齐到网络所需的 8 倍数，保存前裁回原始宽高。
+
+FusionDiff、ReDiffuse 的 metadata 训练适配同样支持这个混合尺寸训练集，但按要求没有加入 `run_mix_v1_all.sh`。需要单独运行时仍使用 `scripts/pipelines/fusiondiff.sh` 和 `scripts/pipelines/rediffuse.sh`。IFCNN、ZMFF、DSIFT 不做监督 batch 训练，因此不需要训练 patch 对齐：推理时逐张读取原尺寸，样本内 A/B 尺寸一致即可。
+
+常用配置：
+
+```bash
+# 快速试跑
+GPUS=0 TRAIN_MAX_SAMPLES=20 INFER_MAX_SAMPLES=10 MAX_TRAIN_STEPS=20 \
+  OUTPUT_ROOT=/data/runs/mfif_mix_smoke bash run_mix_v1_all.sh
+
+# 完整训练（默认也是 20000 步）；显存不足时减小 batch 或裁剪尺寸
+GPUS=0,1 TRAIN_BATCH_SIZE=4 TRAIN_CROP_SIZE=128 MAX_TRAIN_STEPS=20000 \
+  OUTPUT_ROOT=/data/runs/mfif_mix_v1 bash run_mix_v1_all.sh
+
+# 已训练完，只重跑推理与评估
+RUN_TRAIN=0 GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 \
+  bash run_mix_v1_all.sh
+```
+
+可覆盖变量包括 `TRAIN_META`、`VAL_META`、`PYTHON`、`TAG`、`NUM_WORKERS`、`IFCNN_CKPT`、`SWINFUSION_CKPT`、`ZMFF_ITERATIONS`、`EVAL_METRICS` 和 `OVERWRITE`。验证 metadata 全部含 GT 时会自动使用 `all` 指标并同时启用源图指标；没有 GT 时自动使用 `all_no_gt`。
+
+推理和评估全部成功后，脚本默认把 DSIFT、IFCNN、SwinFusion、ZMFF 复制整理到 `RealSceneVal68/<方法>/{manifest,metrics,predictions}`。归档会先在目标旁建立临时目录并校验数量，成功后才覆盖这四种方法的旧子目录；原始运行输出不会删除，FULX2.0_ORIGIN、FusionDiff、ReDiffuse_ORIGIN 不会改动。使用 `RUN_ARCHIVE=0` 可关闭，或用 `ARCHIVE_ROOT=/path` 指定其他位置。
+
+注意：四种方法中只有 SwinFusion 有监督训练流程；IFCNN 加载官方 checkpoint，ZMFF 是逐样本零样本优化，DSIFT 是非学习算法。这三种显示“跳过训练”属于预期行为。
+
 核心规则固定为：
 
 - `edit_image[0]`: 输入 A
