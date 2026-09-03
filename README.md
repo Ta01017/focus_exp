@@ -44,6 +44,8 @@ RUN_TRAIN=0 GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 \
 
 推理和评估全部成功后，脚本默认把 DSIFT、IFCNN、SwinFusion、ZMFF 复制整理到 `RealSceneVal68/<方法>/{manifest,metrics,predictions}`。归档会先在目标旁建立临时目录并校验数量，成功后才覆盖这四种方法的旧子目录；原始运行输出不会删除，FULX2.0_ORIGIN、FusionDiff、ReDiffuse_ORIGIN 不会改动。使用 `RUN_ARCHIVE=0` 可关闭，或用 `ARCHIVE_ROOT=/path` 指定其他位置。
 
+一键流程还会在普通评估后运行四区域指标。它从验证 metadata 的 `focus_a/focus_b`（或 `edit_image[2]/edit_image[3]`）生成 region manifest，默认调用服务器上的 `pixrestore_mfif_paper_suite_v7_20260831/tools/region_eval_v2.py`，参数与 `run_region_real_v2.sh` 一致。结果写入 `$OUTPUT_ROOT/region_eval`，并随归档复制为 `manifest/region_manifest_v2.csv`、`metrics/region_metrics_per_image.csv`、`metrics/region_metrics_summary.csv` 和 `metrics/region_eval.log`。可用 `RUN_REGION_EVAL=0` 关闭，或通过 `REGION_EVAL`、`REGION_PYTHON` 指定评估器和环境。
+
 注意：四种方法中只有 SwinFusion 有监督训练流程；IFCNN 加载官方 checkpoint，ZMFF 是逐样本零样本优化，DSIFT 是非学习算法。这三种显示“跳过训练”属于预期行为。
 
 核心规则固定为：

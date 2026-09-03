@@ -46,7 +46,8 @@ def copy_file(source: Path, destination: Path) -> None:
 
 
 def stage_method(output_root: Path, stage_root: Path, method: str, tag: str,
-                 dataset: str) -> tuple[int, Path]:
+                 dataset: str, require_region: bool = False,
+                 region_dataset: str = "RealSceneVal68") -> tuple[int, Path]:
     layout = METHODS[method]
     infer_dir = output_root / "infer" / layout.infer_name
     eval_root = output_root / layout.eval_root.format(tag=tag)
@@ -97,12 +98,31 @@ def stage_method(output_root: Path, stage_root: Path, method: str, tag: str,
     for source in result_dir.iterdir():
         if source.is_file() and not (metrics / source.name).exists():
             copy_file(source, metrics / source.name)
+    if require_region:
+        region_root = output_root / "region_eval"
+        region_manifest = (
+            region_root / "manifests" / region_dataset / layout.archive_name / "region_manifest_v2.csv"
+        )
+        region_metrics = region_root / "metrics" / region_dataset / layout.archive_name
+        copy_file(region_manifest, manifests / "region_manifest_v2.csv")
+        region_rows = read_csv(region_manifest)
+        if len(region_rows) != len(successful):
+            raise ValueError(
+                f"{method}: region rows={len(region_rows)} do not match successful inference rows={len(successful)}"
+            )
+        for name in ("region_metrics_per_image.csv", "region_metrics_summary.csv", "eval.log"):
+            target_name = "region_eval.log" if name == "eval.log" else name
+            copy_file(region_metrics / name, metrics / target_name)
+        if len(read_csv(region_metrics / "region_metrics_per_image.csv")) != len(successful):
+            raise ValueError(f"{method}: region metric row count does not match successful inference rows")
     if len(list(predictions.glob("*_pred.png"))) != len(successful):
         raise ValueError(f"{method}: staged prediction count validation failed")
     return len(successful), method_stage
 
 
-def publish(output_root: Path, archive_root: Path, tag: str, dataset: str) -> dict[str, int]:
+def publish(output_root: Path, archive_root: Path, tag: str, dataset: str,
+            require_region: bool = False,
+            region_dataset: str = "RealSceneVal68") -> dict[str, int]:
     output_root = output_root.resolve()
     archive_root.mkdir(parents=True, exist_ok=True)
     stage_root = archive_root / f".archive-stage-{uuid.uuid4().hex}"
@@ -112,7 +132,10 @@ def publish(output_root: Path, archive_root: Path, tag: str, dataset: str) -> di
     try:
         stage_root.mkdir()
         for method in METHODS:
-            counts[method], _ = stage_method(output_root, stage_root, method, tag, dataset)
+            counts[method], _ = stage_method(
+                output_root, stage_root, method, tag, dataset,
+                require_region=require_region, region_dataset=region_dataset,
+            )
         for method, layout in METHODS.items():
             target_method = archive_root / layout.archive_name
             target_method.mkdir(parents=True, exist_ok=True)
@@ -149,8 +172,13 @@ def main() -> int:
     parser.add_argument("--archive-root", type=Path, required=True)
     parser.add_argument("--tag", default="swinfusion_mix_v1_y")
     parser.add_argument("--dataset", default="RealMFIFZeddV4")
+    parser.add_argument("--require-region", action="store_true")
+    parser.add_argument("--region-dataset", default="RealSceneVal68")
     args = parser.parse_args()
-    counts = publish(args.output_root, args.archive_root, args.tag, args.dataset)
+    counts = publish(
+        args.output_root, args.archive_root, args.tag, args.dataset,
+        require_region=args.require_region, region_dataset=args.region_dataset,
+    )
     for method, count in counts.items():
         print(f"[ARCHIVED] method={method} predictions={count} target={args.archive_root / method}")
     print(f"[DONE] archive_root={args.archive_root}")

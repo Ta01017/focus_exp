@@ -15,7 +15,8 @@ def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
         writer.writerows(rows)
 
 
-def fake_run(root: Path, tag: str = "tag", dataset: str = "Data") -> None:
+def fake_run(root: Path, tag: str = "tag", dataset: str = "Data",
+             with_region: bool = False) -> None:
     for method, layout in METHODS.items():
         infer = root / "infer" / layout.infer_name
         infer.mkdir(parents=True)
@@ -35,6 +36,16 @@ def fake_run(root: Path, tag: str = "tag", dataset: str = "Data") -> None:
             else:
                 (result / name).parent.mkdir(parents=True, exist_ok=True)
                 (result / name).write_text("{}")
+        if with_region:
+            region_root = root / "region_eval"
+            write_csv(
+                region_root / "manifests" / "RegionData" / layout.archive_name / "region_manifest_v2.csv",
+                [{"sample_id": method}],
+            )
+            region_metrics = region_root / "metrics" / "RegionData" / layout.archive_name
+            write_csv(region_metrics / "region_metrics_per_image.csv", [{"sample_id": method}])
+            write_csv(region_metrics / "region_metrics_summary.csv", [{"method": method}])
+            (region_metrics / "eval.log").write_text("done")
 
 
 def test_publish_replaces_only_selected_methods(tmp_path):
@@ -51,6 +62,15 @@ def test_publish_replaces_only_selected_methods(tmp_path):
     assert not (stale / "stale.png").exists()
     assert (archive / "DSIFT" / "predictions" / "DSIFT_pred.png").is_file()
     assert (untouched / "old.png").read_bytes() == b"old"
+
+
+def test_publish_includes_required_region_outputs(tmp_path):
+    output, archive = tmp_path / "output", tmp_path / "archive"
+    fake_run(output, with_region=True)
+    publish(output, archive, "tag", "Data", require_region=True, region_dataset="RegionData")
+    assert (archive / "SwinFusion" / "manifest" / "region_manifest_v2.csv").is_file()
+    assert (archive / "SwinFusion" / "metrics" / "region_metrics_per_image.csv").is_file()
+    assert (archive / "SwinFusion" / "metrics" / "region_eval.log").read_text() == "done"
 
 
 @pytest.mark.parametrize("failure", ["prediction", "failed_manifest", "manifest", "metrics"])

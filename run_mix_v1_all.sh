@@ -23,9 +23,24 @@ SEED="${SEED:-17}"
 EVAL_METRICS="${EVAL_METRICS:-auto}"
 RUN_ARCHIVE="${RUN_ARCHIVE:-1}"
 ARCHIVE_ROOT="${ARCHIVE_ROOT:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/models/COMPARE_RESULTS_TWO_DATASETS_20260827/RealSceneVal68}"
+RUN_REGION_EVAL="${RUN_REGION_EVAL:-1}"
+REGION_PYTHON="${REGION_PYTHON:-}"
+REGION_EVAL="${REGION_EVAL:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/pixrestore_mfif_paper_suite_v7_20260831/tools/region_eval_v2.py}"
+REGION_DATASET="${REGION_DATASET:-RealSceneVal68}"
+if [[ -z "$REGION_PYTHON" ]]; then
+  if [[ -x /root/miniconda3/envs/p312/bin/python ]]; then
+    REGION_PYTHON=/root/miniconda3/envs/p312/bin/python
+  else
+    REGION_PYTHON="$PYTHON"
+  fi
+fi
 
 [[ -f "$TRAIN_META" ]] || { echo "[ERROR] TRAIN_META not found: $TRAIN_META" >&2; exit 2; }
 [[ -f "$VAL_META" ]] || { echo "[ERROR] VAL_META not found: $VAL_META" >&2; exit 2; }
+if [[ "$RUN_REGION_EVAL" == 1 ]]; then
+  [[ -f "$REGION_EVAL" ]] || { echo "[ERROR] REGION_EVAL not found: $REGION_EVAL" >&2; exit 2; }
+  [[ "$RUN_INFER" == 1 ]] || { echo '[ERROR] RUN_REGION_EVAL=1 requires RUN_INFER=1' >&2; exit 2; }
+fi
 
 if [[ -z "$GPUS" ]]; then
   if command -v nvidia-smi >/dev/null 2>&1; then
@@ -67,12 +82,12 @@ fi
 
 methods=(swinfusion ifcnn zmff dsift)
 run_method() {
-  local method="$1" gpu="$2" out_subdir
+  local method="$1" gpu="$2" out_subdir method_label
   case "$method" in
-    swinfusion) out_subdir=SwinFusion-metadata-y ;;
-    ifcnn) out_subdir=IFCNN ;;
-    zmff) out_subdir=ZMFF ;;
-    dsift) out_subdir=DSIFT ;;
+    swinfusion) out_subdir=SwinFusion-metadata-y; method_label=SwinFusion ;;
+    ifcnn) out_subdir=IFCNN; method_label=IFCNN ;;
+    zmff) out_subdir=ZMFF; method_label=ZMFF ;;
+    dsift) out_subdir=DSIFT; method_label=DSIFT ;;
   esac
   local spec="RealMFIFZeddV4|$VAL_MODE|$VAL_META|$out_subdir|$EVAL_METRICS"
   echo "[JOB] method=$method physical_gpu=$gpu"
@@ -82,6 +97,23 @@ run_method() {
     EVAL_EXTRA_ARGS="$EVAL_EXTRA_ARGS" IFCNN_CKPT="${IFCNN_CKPT:-$ROOT/baselines/IFCNN/Code/snapshots/IFCNN-MAX.pth}" \
     SWINFUSION_CKPT="${SWINFUSION_CKPT:-}" SWINFUSION_CHECKPOINT_MODE=metadata-y \
     ZMFF_ITERATIONS="${ZMFF_ITERATIONS:-1300}" bash "$ROOT/scripts/pipelines/$method.sh"
+  if [[ "$RUN_REGION_EVAL" == 1 ]]; then
+    local region_root="$OUTPUT_ROOT/region_eval"
+    local region_manifest="$region_root/manifests/$REGION_DATASET/$method_label/region_manifest_v2.csv"
+    local region_metrics="$region_root/metrics/$REGION_DATASET/$method_label"
+    "$PYTHON" "$ROOT/tools/build_region_manifest.py" \
+      --metadata "$VAL_META" \
+      --inference-manifest "$OUTPUT_ROOT/infer/$out_subdir/inference_manifest.csv" \
+      --output "$region_manifest" --dataset "$REGION_DATASET" --method "$method_label"
+    mkdir -p "$region_metrics"
+    CUDA_VISIBLE_DEVICES="$gpu" "$REGION_PYTHON" "$REGION_EVAL" \
+      --manifest "$region_manifest" --output-dir "$region_metrics" \
+      --device cuda:0 --lpips-net alex \
+      --sharp-threshold 0.70 --blur-threshold 0.30 \
+      --patch-size 64 --patch-stride 32 \
+      --g-patch-min-coverage 0.80 --g-rsr-psnr-margin 0.20 \
+      2>&1 | tee "$region_metrics/eval.log"
+  fi
 }
 
 pids=()
@@ -106,7 +138,9 @@ if [[ "$RUN_ARCHIVE" == 1 ]]; then
     exit 2
   }
   echo "[ARCHIVE] target=$ARCHIVE_ROOT"
-  "$PYTHON" "$ROOT/tools/archive_real_scene_results.py" \
-    --output-root "$OUTPUT_ROOT" --archive-root "$ARCHIVE_ROOT" \
-    --tag "$TAG" --dataset RealMFIFZeddV4
+  archive_args=(--output-root "$OUTPUT_ROOT" --archive-root "$ARCHIVE_ROOT"
+                --tag "$TAG" --dataset RealMFIFZeddV4
+                --region-dataset "$REGION_DATASET")
+  [[ "$RUN_REGION_EVAL" != 1 ]] || archive_args+=(--require-region)
+  "$PYTHON" "$ROOT/tools/archive_real_scene_results.py" "${archive_args[@]}"
 fi
