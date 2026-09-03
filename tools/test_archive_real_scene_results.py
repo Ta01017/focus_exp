@@ -39,12 +39,12 @@ def fake_run(root: Path, tag: str = "tag", dataset: str = "Data",
         if with_region:
             region_root = root / "region_eval"
             write_csv(
-                region_root / "manifests" / "RegionData" / layout.archive_name / "region_manifest_v2.csv",
+                region_root / "manifests" / "RegionData" / layout.archive_name / "region_manifest_route_v3.csv",
                 [{"sample_id": method}],
             )
             region_metrics = region_root / "metrics" / "RegionData" / layout.archive_name
-            write_csv(region_metrics / "region_metrics_per_image.csv", [{"sample_id": method}])
-            write_csv(region_metrics / "region_metrics_summary.csv", [{"method": method}])
+            write_csv(region_metrics / "route_metrics_per_image.csv", [{"sample_id": method}])
+            write_csv(region_metrics / "route_metrics_summary.csv", [{"method": method}])
             (region_metrics / "eval.log").write_text("done")
 
 
@@ -68,9 +68,9 @@ def test_publish_includes_required_region_outputs(tmp_path):
     output, archive = tmp_path / "output", tmp_path / "archive"
     fake_run(output, with_region=True)
     publish(output, archive, "tag", "Data", require_region=True, region_dataset="RegionData")
-    assert (archive / "SwinFusion" / "manifest" / "region_manifest_v2.csv").is_file()
-    assert (archive / "SwinFusion" / "metrics" / "region_metrics_per_image.csv").is_file()
-    assert (archive / "SwinFusion" / "metrics" / "region_eval.log").read_text() == "done"
+    assert (archive / "SwinFusion" / "manifest" / "region_manifest_route_v3.csv").is_file()
+    assert (archive / "SwinFusion" / "metrics" / "route_metrics_per_image.csv").is_file()
+    assert (archive / "SwinFusion" / "metrics" / "route_v3_eval.log").read_text() == "done"
 
 
 @pytest.mark.parametrize("failure", ["prediction", "failed_manifest", "manifest", "metrics"])

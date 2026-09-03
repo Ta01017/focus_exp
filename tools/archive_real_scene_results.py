@@ -101,19 +101,19 @@ def stage_method(output_root: Path, stage_root: Path, method: str, tag: str,
     if require_region:
         region_root = output_root / "region_eval"
         region_manifest = (
-            region_root / "manifests" / region_dataset / layout.archive_name / "region_manifest_v2.csv"
+            region_root / "manifests" / region_dataset / layout.archive_name / "region_manifest_route_v3.csv"
         )
         region_metrics = region_root / "metrics" / region_dataset / layout.archive_name
-        copy_file(region_manifest, manifests / "region_manifest_v2.csv")
+        copy_file(region_manifest, manifests / "region_manifest_route_v3.csv")
         region_rows = read_csv(region_manifest)
         if len(region_rows) != len(successful):
             raise ValueError(
                 f"{method}: region rows={len(region_rows)} do not match successful inference rows={len(successful)}"
             )
-        for name in ("region_metrics_per_image.csv", "region_metrics_summary.csv", "eval.log"):
-            target_name = "region_eval.log" if name == "eval.log" else name
+        for name in ("route_metrics_per_image.csv", "route_metrics_summary.csv", "eval.log"):
+            target_name = "route_v3_eval.log" if name == "eval.log" else name
             copy_file(region_metrics / name, metrics / target_name)
-        if len(read_csv(region_metrics / "region_metrics_per_image.csv")) != len(successful):
+        if len(read_csv(region_metrics / "route_metrics_per_image.csv")) != len(successful):
             raise ValueError(f"{method}: region metric row count does not match successful inference rows")
     if len(list(predictions.glob("*_pred.png"))) != len(successful):
         raise ValueError(f"{method}: staged prediction count validation failed")

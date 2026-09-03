@@ -25,7 +25,7 @@ RUN_ARCHIVE="${RUN_ARCHIVE:-1}"
 ARCHIVE_ROOT="${ARCHIVE_ROOT:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/models/COMPARE_RESULTS_TWO_DATASETS_20260827/RealSceneVal68}"
 RUN_REGION_EVAL="${RUN_REGION_EVAL:-1}"
 REGION_PYTHON="${REGION_PYTHON:-}"
-REGION_EVAL="${REGION_EVAL:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/pixrestore_mfif_paper_suite_v7_20260831/tools/region_eval_v2.py}"
+REGION_EVAL="${REGION_EVAL:-$ROOT/route3/region_eval_route_v3.py}"
 REGION_DATASET="${REGION_DATASET:-RealSceneVal68}"
 if [[ -z "$REGION_PYTHON" ]]; then
   if [[ -x /root/miniconda3/envs/p312/bin/python ]]; then
@@ -99,17 +99,18 @@ run_method() {
     ZMFF_ITERATIONS="${ZMFF_ITERATIONS:-1300}" bash "$ROOT/scripts/pipelines/$method.sh"
   if [[ "$RUN_REGION_EVAL" == 1 ]]; then
     local region_root="$OUTPUT_ROOT/region_eval"
-    local region_manifest="$region_root/manifests/$REGION_DATASET/$method_label/region_manifest_v2.csv"
+    local region_manifest="$region_root/manifests/$REGION_DATASET/$method_label/region_manifest_route_v3.csv"
     local region_metrics="$region_root/metrics/$REGION_DATASET/$method_label"
     "$PYTHON" "$ROOT/tools/build_region_manifest.py" \
       --metadata "$VAL_META" \
       --inference-manifest "$OUTPUT_ROOT/infer/$out_subdir/inference_manifest.csv" \
-      --output "$region_manifest" --dataset "$REGION_DATASET" --method "$method_label"
+      --output "$region_manifest" --dataset "$REGION_DATASET" --method "$method_label" \
+      --route-sum-tolerance 0.05
     mkdir -p "$region_metrics"
     CUDA_VISIBLE_DEVICES="$gpu" "$REGION_PYTHON" "$REGION_EVAL" \
       --manifest "$region_manifest" --output-dir "$region_metrics" \
       --device cuda:0 --lpips-net alex \
-      --sharp-threshold 0.70 --blur-threshold 0.30 \
+      --route-confidence 0 --route-sum-tolerance 0.05 \
       --patch-size 64 --patch-stride 32 \
       --g-patch-min-coverage 0.80 --g-rsr-psnr-margin 0.20 \
       2>&1 | tee "$region_metrics/eval.log"
