@@ -11,7 +11,9 @@ cd /path/to/focus_exp
 GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 bash run_mix_v1_all.sh
 ```
 
-`GPUS` 可以传 1、2 或 3 张当前空闲卡，例如 `GPUS=2`、`GPUS=2,4`、`GPUS=1,3,6`；不传时会使用 `nvidia-smi` 列出的所有卡。SwinFusion 训练阶段使用这些卡做 DataParallel，之后 SwinFusion、IFCNN、ZMFF、DSIFT 按卡分组并行完成推理和评估。FusionDiff 与 ReDiffuse 不在该入口中。
+`GPUS` 可以传 1、2 或 3 张当前空闲卡，例如 `GPUS=2`、`GPUS=2,4`、`GPUS=1,3,6`；不传时会使用 `nvidia-smi` 列出的所有卡。所有模型任务都只使用单卡：SwinFusion 默认在 `GPUS` 的第一张卡训练（可用 `TRAIN_GPU` 指定列表内其他卡），之后 SwinFusion、IFCNN、ZMFF、DSIFT 按卡分组并行完成推理和评估。FusionDiff 与 ReDiffuse 不在该入口中。
+
+脚本使用自身路径确定项目根目录，不再继承 shell 中通用的 `ROOT` 环境变量。若脚本不在仓库根目录，可显式传 `FOCUS_EXP_ROOT=/path/to/focus_exp`；通常不需要设置。
 
 脚本默认数据路径正是：
 

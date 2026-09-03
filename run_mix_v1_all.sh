@@ -2,7 +2,10 @@
 # Train/infer/evaluate the non-diffusion baselines for the mixed MFIF dataset.
 set -Eeuo pipefail
 
-ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+PROJECT_ROOT="${FOCUS_EXP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+# Pipelines historically consume ROOT. Always point it at this repository;
+# never inherit a generic shell ROOT that may mean the dataset storage root.
+ROOT="$PROJECT_ROOT"
 PYTHON="${PYTHON:-python3}"
 TRAIN_META="${TRAIN_META:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json}"
 VAL_META="${VAL_META:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json}"
@@ -28,7 +31,7 @@ RUN_ARCHIVE="${RUN_ARCHIVE:-1}"
 ARCHIVE_ROOT="${ARCHIVE_ROOT:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/models/COMPARE_RESULTS_TWO_DATASETS_20260827/RealSceneVal68}"
 RUN_REGION_EVAL="${RUN_REGION_EVAL:-1}"
 REGION_PYTHON="${REGION_PYTHON:-}"
-REGION_EVAL="${REGION_EVAL:-$ROOT/route3/region_eval_route_v3.py}"
+REGION_EVAL="${REGION_EVAL:-$PROJECT_ROOT/route3/region_eval_route_v3.py}"
 REGION_DATASET="${REGION_DATASET:-RealSceneVal68}"
 if [[ -z "$REGION_PYTHON" ]]; then
   if [[ -x /root/miniconda3/envs/p312/bin/python ]]; then
@@ -53,6 +56,11 @@ fi
 [[ -n "$GPUS" ]] || { echo '[ERROR] No GPU found. Set GPUS=0 or GPUS=0,1,2.' >&2; exit 2; }
 IFS=',' read -r -a GPU_LIST <<<"$GPUS"
 (( ${#GPU_LIST[@]} >= 1 )) || { echo '[ERROR] GPUS is empty' >&2; exit 2; }
+TRAIN_GPU="${TRAIN_GPU:-${GPU_LIST[0]}}"
+if [[ ! ",$GPUS," == *",$TRAIN_GPU,"* ]]; then
+  echo "[ERROR] TRAIN_GPU=$TRAIN_GPU is not included in GPUS=$GPUS" >&2
+  exit 2
+fi
 
 echo "[PREFLIGHT] checking training metadata"
 if [[ "$PREFLIGHT_TRAIN_MAX_CHECK" != 0 ]]; then
@@ -72,12 +80,12 @@ fi
 EVAL_EXTRA_ARGS="${EVAL_EXTRA_ARGS:-}"
 [[ "$VAL_MODE" != gt ]] || EVAL_EXTRA_ARGS="${EVAL_EXTRA_ARGS} --source-metrics-on-gt"
 
-echo "[CONFIG] GPUs=$GPUS train=$TRAIN_META val=$VAL_META val_mode=$VAL_MODE output=$OUTPUT_ROOT"
+echo "[CONFIG] project_root=$PROJECT_ROOT GPUs=$GPUS train_gpu=$TRAIN_GPU train=$TRAIN_META val=$VAL_META val_mode=$VAL_MODE output=$OUTPUT_ROOT"
 mkdir -p "$OUTPUT_ROOT/logs"
 
 if [[ "$RUN_TRAIN" == 1 ]]; then
-  echo "[TRAIN] SwinFusion on visible GPUs $GPUS (DataParallel)"
-  RUN_TRAIN=1 RUN_INFER=0 RUN_EVAL=0 CUDA_VISIBLE_GPU="$GPUS" \
+  echo "[TRAIN] SwinFusion single-GPU training on physical GPU $TRAIN_GPU"
+  RUN_TRAIN=1 RUN_INFER=0 RUN_EVAL=0 CUDA_VISIBLE_GPU="$TRAIN_GPU" \
     TRAIN_META="$TRAIN_META" VAL_META="$VAL_META" OUTPUT_ROOT="$OUTPUT_ROOT" TAG="$TAG" \
     MAX_SAMPLES="$TRAIN_MAX_SAMPLES" MAX_TRAIN_STEPS="$MAX_TRAIN_STEPS" \
     TRAIN_CROP_SIZE="$TRAIN_CROP_SIZE" TRAIN_BATCH_SIZE="$TRAIN_BATCH_SIZE" \
