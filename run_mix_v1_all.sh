@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 PYTHON="${PYTHON:-python3}"
-TRAIN_META="${TRAIN_META:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json}"
+TRAIN_META="${TRAIN_META:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json}"
 VAL_META="${VAL_META:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$ROOT/outputs/mfif_mix_v1}"
 TAG="${TAG:-swinfusion_mix_v1_y}"
@@ -21,6 +21,9 @@ NUM_WORKERS="${NUM_WORKERS:-8}"
 OVERWRITE="${OVERWRITE:-0}"
 SEED="${SEED:-17}"
 EVAL_METRICS="${EVAL_METRICS:-auto}"
+PREFLIGHT_TRAIN_MAX_CHECK="${PREFLIGHT_TRAIN_MAX_CHECK:-32}"
+PREFLIGHT_VAL_MAX_CHECK="${PREFLIGHT_VAL_MAX_CHECK:-16}"
+PREFLIGHT_WORKERS="${PREFLIGHT_WORKERS:-8}"
 RUN_ARCHIVE="${RUN_ARCHIVE:-1}"
 ARCHIVE_ROOT="${ARCHIVE_ROOT:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/models/COMPARE_RESULTS_TWO_DATASETS_20260827/RealSceneVal68}"
 RUN_REGION_EVAL="${RUN_REGION_EVAL:-1}"
@@ -52,10 +55,17 @@ IFS=',' read -r -a GPU_LIST <<<"$GPUS"
 (( ${#GPU_LIST[@]} >= 1 )) || { echo '[ERROR] GPUS is empty' >&2; exit 2; }
 
 echo "[PREFLIGHT] checking training metadata"
-"$PYTHON" "$ROOT/tools/check_mfif_metadata.py" --metadata "$TRAIN_META" --require-gt
+if [[ "$PREFLIGHT_TRAIN_MAX_CHECK" != 0 ]]; then
+  "$PYTHON" "$ROOT/tools/check_mfif_metadata.py" --metadata "$TRAIN_META" --require-gt \
+    --max-check "$PREFLIGHT_TRAIN_MAX_CHECK" --workers "$PREFLIGHT_WORKERS"
+else
+  echo '[PREFLIGHT] training image check skipped'
+fi
 echo "[PREFLIGHT] checking validation metadata"
-"$PYTHON" "$ROOT/tools/check_mfif_metadata.py" --metadata "$VAL_META"
-VAL_MODE="$("$PYTHON" "$ROOT/tools/check_mfif_metadata.py" --metadata "$VAL_META" --print-eval-mode)"
+"$PYTHON" "$ROOT/tools/check_mfif_metadata.py" --metadata "$VAL_META" \
+  --max-check "$PREFLIGHT_VAL_MAX_CHECK" --workers "$PREFLIGHT_WORKERS"
+VAL_MODE="$("$PYTHON" "$ROOT/tools/check_mfif_metadata.py" --metadata "$VAL_META" \
+  --max-check "$PREFLIGHT_VAL_MAX_CHECK" --print-eval-mode)"
 if [[ "$EVAL_METRICS" == auto ]]; then
   if [[ "$VAL_MODE" == gt ]]; then EVAL_METRICS=all; else EVAL_METRICS=all_no_gt; fi
 fi

@@ -16,7 +16,7 @@ GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 bash run_mix_v1_all.sh
 脚本默认数据路径正是：
 
 ```text
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json
 /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json
 ```
 
@@ -41,6 +41,8 @@ RUN_TRAIN=0 GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 \
 ```
 
 可覆盖变量包括 `TRAIN_META`、`VAL_META`、`PYTHON`、`TAG`、`NUM_WORKERS`、`IFCNN_CKPT`、`SWINFUSION_CKPT`、`ZMFF_ITERATIONS`、`EVAL_METRICS` 和 `OVERWRITE`。验证 metadata 全部含 GT 时会自动使用 `all` 指标并同时启用源图指标；没有 GT 时自动使用 `all_no_gt`。
+
+启动预检默认在整个训练 metadata 中均匀抽查 32 个样本、在验证 metadata 中均匀抽查 16 个样本，并使用 8 个线程并发读取，避免在 JuiceFS 上启动前串行打开全部图片。可以用 `PREFLIGHT_TRAIN_MAX_CHECK`、`PREFLIGHT_VAL_MAX_CHECK` 和 `PREFLIGHT_WORKERS` 调整；抽查数设为 `-1` 表示检查全部，设为 `0` 表示跳过对应图片检查。GT/no-GT 判断始终只读取 JSON 字段，不重复打开图片。
 
 推理和评估全部成功后，脚本默认把 DSIFT、IFCNN、SwinFusion、ZMFF 复制整理到 `RealSceneVal68/<方法>/{manifest,metrics,predictions}`。归档会先在目标旁建立临时目录并校验数量，成功后才覆盖这四种方法的旧子目录；原始运行输出不会删除，FULX2.0_ORIGIN、FusionDiff、ReDiffuse_ORIGIN 不会改动。使用 `RUN_ARCHIVE=0` 可关闭，或用 `ARCHIVE_ROOT=/path` 指定其他位置。
 
