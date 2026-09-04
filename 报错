@@ -1,0 +1,384 @@
+(p312) root@focus03324-20260331164654657-worker-0:/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1# cd /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1
+
+SMOKE=1 \
+GPUS=0,1,2,3 \
+TRAIN_GPU=0 \
+REDIFFUSE_GPU=3 \
+bash run_mix_v1_all.sh
+[SMOKE] 2 SwinFusion steps, 1 inference/evaluation sample per method, temporary archive
+[PREFLIGHT] checking training metadata
+{
+  "metadata": "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json",
+  "total_rows": 5000,
+  "samples_checked": 4,
+  "with_gt": 4,
+  "source_datasets": {
+    "RealMFF": 2,
+    "unspecified": 1,
+    "5K": 1
+  },
+  "width_range": [
+    625,
+    4104
+  ],
+  "height_range": [
+    433,
+    2736
+  ],
+  "duplicate_sample_ids": 0,
+  "errors": [],
+  "error_count": 0
+}
+[PREFLIGHT] checking validation metadata
+{
+  "metadata": "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json",
+  "total_rows": 68,
+  "samples_checked": 1,
+  "with_gt": 1,
+  "source_datasets": {
+    "unspecified": 1
+  },
+  "width_range": [
+    4104,
+    4104
+  ],
+  "height_range": [
+    2736,
+    2736
+  ],
+  "duplicate_sample_ids": 0,
+  "errors": [],
+  "error_count": 0
+}
+[CONFIG] smoke=1 project_root=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1 GPUs=0,1,2,3 main_gpus=0,1,2 train_gpu=0 rediffuse=1 rediffuse_gpu=3
+[CONFIG] train=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json val=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json val_mode=gt output=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749
+[LAUNCH] ReDiffuse_ORIGIN dedicated physical GPU 3
+[LAUNCH] SwinFusion training on physical GPU 0
+[JOB] method=zmff physical_gpu=2
+[JOB] method=ifcnn physical_gpu=1
+[CONFIG] ReDiffuse_ORIGIN gpu=3 infer_python=/root/miniconda3/envs/rediffuse38_0806/bin/python eval_python=/root/miniconda3/envs/p312/bin/python
+[CONFIG] metadata=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json output=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749 archive=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/smoke_archive/RealSceneVal68
+[CONFIG] METHOD=swinfusion TRAIN_META=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json VAL_META=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json OUTPUT_ROOT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train TAG=swinfusion_mix_v1_y GPUS=0 WORKERS=0 SEED=17 INIT_MODE=scratch VALIDATION_MODE=loss CROP=128 BATCH=1
+[GPU] CUDA_VISIBLE_DEVICES=2 (Python device cuda:0)
+[GPU] CUDA_VISIBLE_DEVICES=1 (Python device cuda:0)
+[GPU] CUDA_VISIBLE_DEVICES=3 (Python device cuda:0)
+[RUN] method=rediffuse checkpoint=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/weights/model.pt checkpoint_mode=official-y seed=17 metadata=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json output_dir=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/infer/ReDiffuse-official-y device=cuda:0 sampling_steps=2000
+[B_CONV] source=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
+[B_CONV] runtime=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/Condition_Noise_Predictor/B_Conv.pyc
+[B_CONV] sha256=62fb37e52d4c4638daed9e6b5e4bf7d5cc3f337811159b17b9246ff8d67d5fa1
+[B_CONV] python=3.8.10 (default, Jun  4 2021, 15:09:15)
+[GCC 7.5.0]
+[B_CONV] magic=550d0d0a
+[B_CONV] imported=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/Condition_Noise_Predictor/B_Conv.pyc
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/IFCNN/infer_metadata.py:51: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  state = torch.load(str(ckpt), map_location=device)
+Traceback (most recent call last):
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ZMFF/infer_metadata.py", line 15, in <module>
+    from network.loss import Loss
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ZMFF/network/loss.py", line 10, in <module>
+    from skimage.measure import compare_psnr, compare_ssim
+ImportError: cannot import name 'compare_psnr' from 'skimage.measure' (/root/miniconda3/envs/p312/lib/python3.12/site-packages/skimage/measure/__init__.py)
+[FAILED] zmff inference/full-image evaluation
+[FAILED] zmff; next task on this GPU continues
+26-09-04 03:08:19.434 :   task: Multi_Focus_Fusion
+  model: plain
+  gpu_ids: [0]
+  dist: False
+  scale: 1
+  n_channels: 1
+  path:[
+    root: Model/Multi_Focus_Fusion
+    pretrained_netG: None
+    pretrained_netE: None
+    task: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y
+    log: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/logs
+    options: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y
+    models: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/checkpoints
+    images: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/validation
+    tensorboard: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/logs/tensorboard
+    pretrained_optimizerG: None
+  ]
+  datasets:[
+    train:[
+      name: train_dataset
+      dataset_type: metadata_mff
+      dataroot_A: Dataset/trainsets/MFI-WHU/A_Y
+      dataroot_B: Dataset/trainsets/MFI-WHU/B_Y
+      H_size: 128
+      dataloader_shuffle: True
+      dataloader_num_workers: 0
+      dataloader_batch_size: 1
+      phase: train
+      scale: 1
+      n_channels: 1
+      metadata: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json
+      start_index: 0
+      max_samples: 4
+    ]
+    test:[
+      name: test_dataset
+      dataset_type: metadata_mff
+      dataroot_A: Dataset/valsets/Lytro/A_Y
+      dataroot_B: Dataset/valsets/Lytro/B_Y
+      phase: test
+      scale: 1
+      n_channels: 1
+      metadata: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json
+      max_samples: 4
+    ]
+  ]
+  netG:[
+    net_type: swinfusion1
+    upscale: 1
+    in_chans: 1
+    img_size: 128
+    window_size: 8
+    img_range: 1.0
+    depths: [6, 6, 6, 6]
+    embed_dim: 60
+    num_heads: [6, 6, 6, 6]
+    mlp_ratio: 2
+    upsampler: None
+    resi_connection: 1conv
+    init_type: default
+    scale: 1
+  ]
+  train:[
+    G_lossfn_type: mff
+    G_lossfn_weight: 1.0
+    E_decay: 0.999
+    G_optimizer_type: adam
+    G_optimizer_lr: 0.0002
+    G_optimizer_wd: 0
+    G_optimizer_clipgrad: None
+    G_optimizer_reuse: True
+    G_scheduler_type: MultiStepLR
+    G_scheduler_milestones: [250000, 400000, 450000, 475000, 500000]
+    G_scheduler_gamma: 0.5
+    G_regularizer_orthstep: None
+    G_regularizer_clipstep: None
+    G_param_strict: True
+    E_param_strict: True
+    checkpoint_test: 1000
+    checkpoint_save: 1000
+    checkpoint_print: 200
+    F_feature_layer: 34
+    F_weights: 1.0
+    F_lossfn_type: l1
+    F_use_input_norm: True
+    F_use_range_norm: False
+  ]
+  opt_path: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/SwinFusion/options/swinir/train_swinfusion_mff.json
+  is_train: True
+  merge_bn: False
+  merge_bn_startpoint: -1
+  find_unused_parameters: True
+  num_gpu: 1
+  rank: 0
+  world_size: 1
+
+26-09-04 03:08:20.773 : Number of train images: 4, iters: 4
+[DONE] failed=0
+[DONE] /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/IFCNN/manifests/RealMFIFZeddV4_IFCNN.csv rows=1
+usage: evaluate.py [-h] [--manifest MANIFEST] [--metrics METRICS]
+                   [--datasets DATASETS] [--methods METHODS]
+                   [--mode {all,gt,no_gt}] [--output-dir OUTPUT_DIR]
+                   [--tpami-root TPAMI_ROOT] [--objective-root OBJECTIVE_ROOT]
+                   [--matlab-command MATLAB_COMMAND]
+                   [--qcnn-device QCNN_DEVICE]
+                   [--lpips-net {alex,vgg,squeeze}] [--source-metrics-on-gt]
+                   [--fail-fast] [--list-metrics]
+evaluate.py: error: unrecognized arguments:  --source-metrics-on-gt
+[FAILED] ifcnn inference/full-image evaluation
+[FAILED] ifcnn; next task on this GPU continues
+[JOB] method=dsift physical_gpu=1
+[GPU] CUDA_VISIBLE_DEVICES=1 (Python device cuda:0)
+[GPU] CUDA_VISIBLE_DEVICES=0
+[GPU] logical_gpu_ids=[0]
+[GPU] num_gpu=1
+[INIT] mode=scratch G= E= optimizer=
+Model/Multi_Focus_Fusion
+None
+None
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/logs
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/checkpoints
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/validation
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/logs/tensorboard
+None
+LogHandlers setup!
+Random seed: 17
+Dataset [DatasetMetadataMFF - train_dataset] is created.
+Dataset [DatasetMetadataMFF - test_dataset] is created.
+train metadata: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json
+train samples: 4
+train[0] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/RealMFF/imageA/671_A.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/RealMFF/imageB/671_B.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/RealMFF/Fusion/671_F.png
+train[1] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/002643_s01_a4835-Duggan_090426_7891_7d7c271c_3da28058/a_squarecrop.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/002643_s01_a4835-Duggan_090426_7891_7d7c271c_3da28058/b_aligned_squarecrop.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/002643_s01_a4835-Duggan_090426_7891_7d7c271c_3da28058/target_squarecrop.png
+train[2] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/003083_s02_LFDOF_IMG_5757_882ae4cb_d7af150b/a_squarecrop.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/003083_s02_LFDOF_IMG_5757_882ae4cb_d7af150b/b_aligned_squarecrop.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/003083_s02_LFDOF_IMG_5757_882ae4cb_d7af150b/target_squarecrop.png
+train duplicate sample_id: False
+val metadata: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json
+val samples: 4
+val[0] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/zedd/val_0028/img_run_1_motor_6D3E_aperture_F1.4.jpg B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/processed/val/aligned_b/zedd_val_0028_f1.4_Ar01_Br09_extreme_b_aligned_to_a.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/zedd/val_0028/img_run_1_motor_6D3E_aperture_F16.0.jpg
+val[1] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/selfshot/202605141441480_fn0/202605141441480_4080x3072_fn0_in_0.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/processed/val/aligned_b/self_202605141441480_fn0_Ain00_Bin04_mild_b_aligned_to_a.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/selfshot/202605141441480_fn0/202605141441480_shot_allinFocus_4080x3072_fn0_reqId951_out_0.png
+val[2] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/selfshot/202605141439180_fn0/202605141439180_4080x3072_fn0_in_0.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/processed/val/aligned_b/self_202605141439180_fn0_Ain00_Bin01_hard_b_aligned_to_a.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/selfshot/202605141439180_fn0/202605141439180_shot_allinFocus_4080x3072_fn0_reqId871_out_0.png
+val duplicate sample_id: False
+in_chans:  1
+Pass this initialization! Initialization was done during network defination!
+in_chans:  1
+Pass this initialization! Initialization was done during network defination!
+Training model [ModelPlain] is created.
+Copying model for E ...
+final checkpoint saved at step 2
+one-batch metadata validation: PASS
+[JOB] method=swinfusion physical_gpu=0
+[GPU] CUDA_VISIBLE_DEVICES=0 (Python device cuda:0)
+[RUN] method=swinfusion checkpoint=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/checkpoints/2_E.pth checkpoint_mode=metadata-y seed=17 metadata=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json output_dir=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/infer/SwinFusion-metadata-y device=cuda:0
+/root/miniconda3/envs/p312/lib/python3.12/site-packages/torch/functional.py:534: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /opt/conda/conda-bld/pytorch_1728945388038/work/aten/src/ATen/native/TensorShape.cpp:3595.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/SwinFusion/infer_metadata.py:44: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  state = torch.load(str(ckpt), map_location=device); model.load_state_dict(state.get("params", state), strict=True); model.to(device).eval()
+in_chans:  1
+[DONE] failed=0
+[DONE] /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/SwinFusion/swinfusion_mix_v1_y/manifests/RealMFIFZeddV4_SwinFusion.csv rows=1
+usage: evaluate.py [-h] [--manifest MANIFEST] [--metrics METRICS]
+                   [--datasets DATASETS] [--methods METHODS]
+                   [--mode {all,gt,no_gt}] [--output-dir OUTPUT_DIR]
+                   [--tpami-root TPAMI_ROOT] [--objective-root OBJECTIVE_ROOT]
+                   [--matlab-command MATLAB_COMMAND]
+                   [--qcnn-device QCNN_DEVICE]
+                   [--lpips-net {alex,vgg,squeeze}] [--source-metrics-on-gt]
+                   [--fail-fast] [--list-metrics]
+evaluate.py: error: unrecognized arguments:  --source-metrics-on-gt
+[FAILED] swinfusion inference/full-image evaluation
+[FAILED] swinfusion; next task on this GPU continues
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/DSIFT-MFIF/dsift_mfif.py:139: FutureWarning: Parameter `min_size` is deprecated since version 0.26.0 and will be removed in 2.0.0 (or later). To avoid this warning, please use the parameter `max_size` instead. For more details, see the documentation of `remove_small_objects`. Note that the new threshold removes objects smaller than **or equal to** its value, while the previous parameter only removed smaller ones.
+  temp1 = remove_small_objects(init1, min_size=area, connectivity=2)
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/DSIFT-MFIF/dsift_mfif.py:140: FutureWarning: Parameter `min_size` is deprecated since version 0.26.0 and will be removed in 2.0.0 (or later). To avoid this warning, please use the parameter `max_size` instead. For more details, see the documentation of `remove_small_objects`. Note that the new threshold removes objects smaller than **or equal to** its value, while the previous parameter only removed smaller ones.
+  temp2 = remove_small_objects(init2, min_size=area, connectivity=2)
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/DSIFT-MFIF/dsift_mfif.py:141: FutureWarning: Parameter `min_size` is deprecated since version 0.26.0 and will be removed in 2.0.0 (or later). To avoid this warning, please use the parameter `max_size` instead. For more details, see the documentation of `remove_small_objects`. Note that the new threshold removes objects smaller than **or equal to** its value, while the previous parameter only removed smaller ones.
+  init1 = ~remove_small_objects(~temp1, min_size=area, connectivity=2)
+/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/DSIFT-MFIF/dsift_mfif.py:142: FutureWarning: Parameter `min_size` is deprecated since version 0.26.0 and will be removed in 2.0.0 (or later). To avoid this warning, please use the parameter `max_size` instead. For more details, see the documentation of `remove_small_objects`. Note that the new threshold removes objects smaller than **or equal to** its value, while the previous parameter only removed smaller ones.
+  init2 = ~remove_small_objects(~temp2, min_size=area, connectivity=2)
+[DONE] rows=1 success=1
+[DONE] failed=0
+[DONE] /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/DSIFT/manifests/RealMFIFZeddV4_DSIFT.csv rows=1
+usage: evaluate.py [-h] [--manifest MANIFEST] [--metrics METRICS]
+                   [--datasets DATASETS] [--methods METHODS]
+                   [--mode {all,gt,no_gt}] [--output-dir OUTPUT_DIR]
+                   [--tpami-root TPAMI_ROOT] [--objective-root OBJECTIVE_ROOT]
+                   [--matlab-command MATLAB_COMMAND]
+                   [--qcnn-device QCNN_DEVICE]
+                   [--lpips-net {alex,vgg,squeeze}] [--source-metrics-on-gt]
+                   [--fail-fast] [--list-metrics]
+evaluate.py: error: unrecognized arguments:  --source-metrics-on-gt
+[FAILED] dsift inference/full-image evaluation
+[FAILED] dsift; next task on this GPU continues
+[ARCHIVE] target=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/smoke_archive/RealSceneVal68
+Traceback (most recent call last):
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 195, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 183, in main
+    counts = publish(
+             ^^^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 138, in publish
+    counts[method], _ = stage_method(
+                        ^^^^^^^^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 94, in stage_method
+    copy_file(result_dir / name, metrics / name)
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 45, in copy_file
+    raise FileNotFoundError(f"required file missing: {source}")
+FileNotFoundError: required file missing: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/SwinFusion/swinfusion_mix_v1_y/results/RealMFIFZeddV4/per_image.csv
+[FAILED] SwinFusion archive; remaining archives continue
+Traceback (most recent call last):
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 195, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 183, in main
+    counts = publish(
+             ^^^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 138, in publish
+    counts[method], _ = stage_method(
+                        ^^^^^^^^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 94, in stage_method
+    copy_file(result_dir / name, metrics / name)
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 45, in copy_file
+    raise FileNotFoundError(f"required file missing: {source}")
+FileNotFoundError: required file missing: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/IFCNN/results/RealMFIFZeddV4/per_image.csv
+[FAILED] IFCNN archive; remaining archives continue
+Traceback (most recent call last):
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 195, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 183, in main
+    counts = publish(
+             ^^^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 138, in publish
+    counts[method], _ = stage_method(
+                        ^^^^^^^^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 58, in stage_method
+    rows = read_csv(infer_manifest)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 38, in read_csv
+    raise FileNotFoundError(f"required file missing: {path}")
+FileNotFoundError: required file missing: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/infer/ZMFF/inference_manifest.csv
+[FAILED] ZMFF archive; remaining archives continue
+Traceback (most recent call last):
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 195, in <module>
+    raise SystemExit(main())
+                     ^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 183, in main
+    counts = publish(
+             ^^^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 138, in publish
+    counts[method], _ = stage_method(
+                        ^^^^^^^^^^^^^
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 94, in stage_method
+    copy_file(result_dir / name, metrics / name)
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 45, in copy_file
+    raise FileNotFoundError(f"required file missing: {source}")
+FileNotFoundError: required file missing: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/DSIFT/results/RealMFIFZeddV4/per_image.csv
+[FAILED] DSIFT archive; remaining archives continue
+[REDIFFUSE] checkpoint_mode=official-y
+[REDIFFUSE] checkpoint=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/weights/model.pt
+[REDIFFUSE] python=/root/miniconda3/envs/rediffuse38_0806/bin/python
+[REDIFFUSE] color_space=Y
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1900/2000    [time] 20260904_030947
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1800/2000    [time] 20260904_031117
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1700/2000    [time] 20260904_031246
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1600/2000    [time] 20260904_031415
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1500/2000    [time] 20260904_031543
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1400/2000    [time] 20260904_031712
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1300/2000    [time] 20260904_031841
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1200/2000    [time] 20260904_032009
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1100/2000    [time] 20260904_032138
+[valid step] 1/1    [generate step] 1/1    [reverse process] 1000/2000    [time] 20260904_032306
+[valid step] 1/1    [generate step] 1/1    [reverse process] 900/2000    [time] 20260904_032435
+[valid step] 1/1    [generate step] 1/1    [reverse process] 800/2000    [time] 20260904_032603
+[valid step] 1/1    [generate step] 1/1    [reverse process] 700/2000    [time] 20260904_032732
+[valid step] 1/1    [generate step] 1/1    [reverse process] 600/2000    [time] 20260904_032900
+[valid step] 1/1    [generate step] 1/1    [reverse process] 500/2000    [time] 20260904_033029
+[valid step] 1/1    [generate step] 1/1    [reverse process] 400/2000    [time] 20260904_033158
+[valid step] 1/1    [generate step] 1/1    [reverse process] 300/2000    [time] 20260904_033326
+[valid step] 1/1    [generate step] 1/1    [reverse process] 200/2000    [time] 20260904_033455
+[valid step] 1/1    [generate step] 1/1    [reverse process] 100/2000    [time] 20260904_033623
+[valid step] 1/1    [generate step] 1/1    [reverse process] 0/2000    [time] 20260904_033752
+Traceback (most recent call last):
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/infer_metadata.py", line 101, in <module>
+    if __name__=='__main__': main()
+  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/infer_metadata.py", line 99, in main
+    write_run_files(out,records,vars(args)|{'metadata':str(meta),'checkpoint_loaded':str(ckpt.resolve()),'actual_sampling_steps':trained_steps})
+TypeError: unsupported operand type(s) for |: 'dict' and 'dict'
+[FAILED] ReDiffuse_ORIGIN; other tasks continue
+[DONE WITH FAILURES] outputs=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749
+  - archive_DSIFT
+  - archive_IFCNN
+  - archive_SwinFusion
+  - archive_ZMFF
+  - dsift
+  - ifcnn
+  - rediffuse
+  - swinfusion
+  - zmff
+(p312) root@focus03324-20260331164654657-worker-0:/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1# ^C
