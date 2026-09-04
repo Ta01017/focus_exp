@@ -96,6 +96,9 @@ def main():
             rec['success']=True
         except Exception as exc: rec['error']=f'{type(exc).__name__}: {exc}'
         rec['runtime_seconds']=round(time.perf_counter()-started,6); records.append(rec)
-    write_run_files(out,records,vars(args)|{'metadata':str(meta),'checkpoint_loaded':str(ckpt.resolve()),'actual_sampling_steps':trained_steps})
+    run_config = vars(args).copy()
+    run_config.update({'metadata': str(meta), 'checkpoint_loaded': str(ckpt.resolve()),
+                       'actual_sampling_steps': trained_steps})
+    write_run_files(out, records, run_config)
     if not any(r['success'] for r in records): raise SystemExit(2)
 if __name__=='__main__': main()

@@ -33,6 +33,10 @@ run_eval_for_specs() {
   local infer_root="$2"
   local eval_root="$3"
   local specs="$4"
+  local eval_extra=()
+  if [[ -n "$EVAL_EXTRA_ARGS" ]]; then
+    IFS=' ' read -r -a eval_extra <<<"$EVAL_EXTRA_ARGS"
+  fi
   [[ -n "$specs" ]] || { echo "[EVAL] EVAL_SPECS empty; skip evaluation"; return 0; }
   mkdir -p "$eval_root/manifests" "$eval_root/results"
   local merged=()
@@ -61,7 +65,7 @@ run_eval_for_specs() {
       --manifest "$eval_manifest" \
       --metrics "$metrics" \
       --output-dir "$eval_root/results/$dataset" \
-      $EVAL_EXTRA_ARGS
+      "${eval_extra[@]}"
     merged+=("$eval_manifest")
   done
   if [[ "${#merged[@]}" -gt 1 ]]; then

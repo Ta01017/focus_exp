@@ -50,7 +50,6 @@ if [[ "$SMOKE" == 1 ]]; then
   ZMFF_ITERATIONS=2
   PREFLIGHT_TRAIN_MAX_CHECK=4
   PREFLIGHT_VAL_MAX_CHECK=1
-  OVERWRITE=1
   if [[ -z "$OUTPUT_ROOT_WAS_SET" ]]; then
     OUTPUT_ROOT="$ROOT/outputs/smoke_$(date +%Y%m%d_%H%M%S)"
     REDIFFUSE_OUTPUT_ROOT="$OUTPUT_ROOT"

@@ -7,7 +7,6 @@ import torchvision.models as models
 
 from network.SSIM import SSIM
 from torch.nn import MSELoss, L1Loss
-from skimage.measure import compare_psnr, compare_ssim
 
 
 class Loss(nn.Module):
