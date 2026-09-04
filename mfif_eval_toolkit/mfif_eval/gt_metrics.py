@@ -4,12 +4,12 @@ from functools import lru_cache
 from typing import Dict, Iterable
 
 import numpy as np
+import torch
 from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 
 @lru_cache(maxsize=2)
 def _lpips_model(net: str = "alex"):
-    import torch
     try:
         import lpips
     except ImportError as exc:
@@ -22,8 +22,10 @@ def _lpips_model(net: str = "alex"):
 
 
 def _to_tensor01(image: np.ndarray) -> torch.Tensor:
-    import torch
-    tensor = torch.from_numpy(np.ascontiguousarray(image)).permute(2, 0, 1).float() / 255.0
+    # ``np.asarray(PIL.Image)`` may be a read-only view.  Copy it before
+    # handing it to PyTorch so metric code never receives a non-writable
+    # tensor backing array.
+    tensor = torch.from_numpy(np.array(image, copy=True, order="C")).permute(2, 0, 1).float() / 255.0
     return tensor.unsqueeze(0)
 
 
