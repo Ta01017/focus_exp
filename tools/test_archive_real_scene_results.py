@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from archive_real_scene_results import METHODS, REQUIRED_METRICS, publish
+from archive_real_scene_results import DEFAULT_METHODS, METHODS, REQUIRED_METRICS, publish
 
 
 def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
@@ -58,10 +58,21 @@ def test_publish_replaces_only_selected_methods(tmp_path):
     stale.mkdir(parents=True)
     (stale / "stale.png").write_bytes(b"old")
     counts = publish(output, archive, "tag", "Data")
-    assert counts == {method: 1 for method in METHODS}
+    assert counts == {method: 1 for method in DEFAULT_METHODS}
     assert not (stale / "stale.png").exists()
     assert (archive / "DSIFT" / "predictions" / "DSIFT_pred.png").is_file()
     assert (untouched / "old.png").read_bytes() == b"old"
+
+
+def test_publish_can_select_only_rediffuse(tmp_path):
+    output, archive = tmp_path / "output", tmp_path / "archive"
+    fake_run(output, with_region=True)
+    counts = publish(output, archive, "tag", "Data", require_region=True,
+                     region_dataset="RegionData", methods=("ReDiffuse",))
+    assert counts == {"ReDiffuse": 1}
+    target = archive / "ReDiffuse_ORIGIN"
+    assert (target / "predictions" / "ReDiffuse_pred.png").is_file()
+    assert (target / "metrics" / "route_metrics_summary.csv").is_file()
 
 
 def test_publish_includes_required_region_outputs(tmp_path):

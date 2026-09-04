@@ -299,7 +299,10 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
                 for test_data in test_loader:
                     idx += 1
                     image_name_ext = os.path.basename(test_data['A_path'][0])
-                    img_name, ext = os.path.splitext(image_name_ext)
+                    # A/GT basenames and source_index values may repeat across
+                    # datasets.  The metadata adapter supplies a globally unique
+                    # id containing the metadata position.
+                    img_name = test_data['sample_id'][0]
 
                     img_dir = os.path.join(opt['path']['images'], img_name)
                     util.mkdir(img_dir)
@@ -310,6 +313,20 @@ def main(json_path='options/swinir/train_swinir_sr_lightweight.json'):
                     E_img = util.tensor2uint(visuals['E'])
                     if need_GT:
                         H_img = util.tensor2uint(visuals['GT'])
+
+                    # Validation samples are edge-padded to a window multiple.
+                    # Evaluate/save only their original valid image rectangle;
+                    # this also normalizes a possible singleton channel axis.
+                    valid_h = int(test_data['original_height'][0])
+                    valid_w = int(test_data['original_width'][0])
+                    E_img = np.squeeze(E_img)[:valid_h, :valid_w]
+                    if need_GT:
+                        H_img = np.squeeze(H_img)[:valid_h, :valid_w]
+                        if E_img.shape != H_img.shape:
+                            raise ValueError(
+                                'Validation E/GT dimensions differ after cropping '
+                                f'to original size {(valid_h, valid_w)}: '
+                                f'E={E_img.shape}, GT={H_img.shape}')
 
                     # -----------------------
                     # save estimated image E

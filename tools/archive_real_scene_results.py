@@ -23,7 +23,9 @@ METHODS = {
     "IFCNN": MethodLayout("IFCNN", "IFCNN", "eval/IFCNN"),
     "SwinFusion": MethodLayout("SwinFusion", "SwinFusion-metadata-y", "eval/SwinFusion/{tag}"),
     "ZMFF": MethodLayout("ZMFF", "ZMFF", "eval/ZMFF"),
+    "ReDiffuse": MethodLayout("ReDiffuse_ORIGIN", "ReDiffuse-official-y", "eval/ReDiffuse/{tag}"),
 }
+DEFAULT_METHODS = ("DSIFT", "IFCNN", "SwinFusion", "ZMFF")
 REQUIRED_METRICS = ("per_image.csv", "summary.csv", "skipped_metrics.csv", "run_metadata.json")
 
 
@@ -122,7 +124,8 @@ def stage_method(output_root: Path, stage_root: Path, method: str, tag: str,
 
 def publish(output_root: Path, archive_root: Path, tag: str, dataset: str,
             require_region: bool = False,
-            region_dataset: str = "RealSceneVal68") -> dict[str, int]:
+            region_dataset: str = "RealSceneVal68",
+            methods: tuple[str, ...] = DEFAULT_METHODS) -> dict[str, int]:
     output_root = output_root.resolve()
     archive_root.mkdir(parents=True, exist_ok=True)
     stage_root = archive_root / f".archive-stage-{uuid.uuid4().hex}"
@@ -131,12 +134,13 @@ def publish(output_root: Path, archive_root: Path, tag: str, dataset: str,
     replaced: list[tuple[Path, Path | None]] = []
     try:
         stage_root.mkdir()
-        for method in METHODS:
+        for method in methods:
             counts[method], _ = stage_method(
                 output_root, stage_root, method, tag, dataset,
                 require_region=require_region, region_dataset=region_dataset,
             )
-        for method, layout in METHODS.items():
+        for method in methods:
+            layout = METHODS[method]
             target_method = archive_root / layout.archive_name
             target_method.mkdir(parents=True, exist_ok=True)
             for kind in ("manifest", "metrics", "predictions"):
@@ -174,10 +178,12 @@ def main() -> int:
     parser.add_argument("--dataset", default="RealMFIFZeddV4")
     parser.add_argument("--require-region", action="store_true")
     parser.add_argument("--region-dataset", default="RealSceneVal68")
+    parser.add_argument("--methods", nargs="+", choices=tuple(METHODS), default=list(DEFAULT_METHODS))
     args = parser.parse_args()
     counts = publish(
         args.output_root, args.archive_root, args.tag, args.dataset,
         require_region=args.require_region, region_dataset=args.region_dataset,
+        methods=tuple(args.methods),
     )
     for method, count in counts.items():
         print(f"[ARCHIVED] method={method} predictions={count} target={args.archive_root / method}")

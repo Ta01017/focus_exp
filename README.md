@@ -8,10 +8,14 @@
 
 ```bash
 cd /path/to/focus_exp
-GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 bash run_mix_v1_all.sh
+GPUS=0,1,2 REDIFFUSE_GPU=2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 bash run_mix_v1_all.sh
 ```
 
-`GPUS` 可以传 1、2 或 3 张当前空闲卡，例如 `GPUS=2`、`GPUS=2,4`、`GPUS=1,3,6`；不传时会使用 `nvidia-smi` 列出的所有卡。所有模型任务都只使用单卡：SwinFusion 默认在 `GPUS` 的第一张卡训练（可用 `TRAIN_GPU` 指定列表内其他卡），之后 SwinFusion、IFCNN、ZMFF、DSIFT 按卡分组并行完成推理和评估。FusionDiff 与 ReDiffuse 不在该入口中。
+`GPUS` 可以传 1 至 4 张当前空闲卡，例如 `GPUS=2`、`GPUS=2,4`、`GPUS=0,1,2,3`；不传时会使用 `nvidia-smi` 列出的所有卡。默认启用 ReDiffuse 官方模型，并把 `REDIFFUSE_GPU`（默认最后一张卡）从普通工作卡中预留出来独占运行。其余卡运行 SwinFusion、IFCNN、ZMFF、DSIFT；所有模型进程仍然只看到一张卡。SwinFusion 默认在普通工作卡的第一张训练，可用 `TRAIN_GPU` 指定另一张普通工作卡。
+
+当 `GPUS=0,1,2,3` 时不会先等 SwinFusion 训练完成：GPU 0 训练 SwinFusion，GPU 1 立即运行 IFCNN 后接 DSIFT，GPU 2 立即运行 ZMFF，GPU 3 同时独占运行 ReDiffuse；训练结束后 GPU 0 立即继续 SwinFusion 推理和两套评估。只有一张卡时无法并行，四方法结束后才运行 ReDiffuse；可用 `RUN_REDIFFUSE=0` 关闭它。
+
+每项任务都有独立状态。某个模型的训练、推理、全图评估、route3 评估或归档失败时，会写入失败状态并继续启动同卡队列里的后续模型；四种方法也分别独立归档，一个归档失败不会拦住其他归档。脚本等待所有长任务结束后统一列出失败项并返回非零状态，不会因一个模型报错浪费其他空闲卡。
 
 脚本使用自身路径确定项目根目录，不再继承 shell 中通用的 `ROOT` 环境变量。若脚本不在仓库根目录，可显式传 `FOCUS_EXP_ROOT=/path/to/focus_exp`；通常不需要设置。
 
@@ -24,7 +28,7 @@ GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 bash run_mix_v1_all.sh
 
 训练数据允许不同样本具有不同宽高。每个样本的 A/B/GT 会先校验同尺寸，再使用完全同步的补边、随机裁剪和增强。这里不是先把整张图拉伸放大：当宽或高小于裁剪窗口时，只在四周复制边缘像素补足；达到裁剪尺寸后，从 A/B/GT 的同一坐标裁出 patch。SwinFusion 默认裁剪 `128x128`，FusionDiff 和 ReDiffuse 默认裁剪 `256x256`；后两者按原配置在裁剪后统一为 `256x256`。验证推理按每张原图处理，只临时补齐到网络所需的 8 倍数，保存前裁回原始宽高。
 
-FusionDiff、ReDiffuse 的 metadata 训练适配同样支持这个混合尺寸训练集，但按要求没有加入 `run_mix_v1_all.sh`。需要单独运行时仍使用 `scripts/pipelines/fusiondiff.sh` 和 `scripts/pipelines/rediffuse.sh`。IFCNN、ZMFF、DSIFT 不做监督 batch 训练，因此不需要训练 patch 对齐：推理时逐张读取原尺寸，样本内 A/B 尺寸一致即可。
+FusionDiff、ReDiffuse 的 metadata 训练适配同样支持这个混合尺寸训练集，但一键入口不会训练它们。一键入口会运行 ReDiffuse 官方权重的长时间推理和两套评估；FusionDiff 仍不加入。需要训练时使用 `scripts/pipelines/fusiondiff.sh` 和 `scripts/pipelines/rediffuse.sh`。IFCNN、ZMFF、DSIFT 不做监督 batch 训练，因此不需要训练 patch 对齐：推理时逐张读取原尺寸，样本内 A/B 尺寸一致即可。
 
 常用配置：
 
@@ -49,6 +53,21 @@ RUN_TRAIN=0 GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 \
 推理和评估全部成功后，脚本默认把 DSIFT、IFCNN、SwinFusion、ZMFF 复制整理到 `RealSceneVal68/<方法>/{manifest,metrics,predictions}`。归档会先在目标旁建立临时目录并校验数量，成功后才覆盖这四种方法的旧子目录；原始运行输出不会删除，FULX2.0_ORIGIN、FusionDiff、ReDiffuse_ORIGIN 不会改动。使用 `RUN_ARCHIVE=0` 可关闭，或用 `ARCHIVE_ROOT=/path` 指定其他位置。
 
 一键流程还会在普通评估后运行 route3 三区域指标。它强制从验证 metadata 读取归一化的 `m_a/m_b/m_g` 三张路由图，通过 argmax 划分互斥的 A/B/G 区域，并检查 `M_A+M_B+M_G` 的平均绝对误差不超过 `0.05`；旧版两张 `focus_a/focus_b` 阈值划分不再使用。默认调用仓库 `route3/region_eval_route_v3.py`，结果写入 `$OUTPUT_ROOT/region_eval`，并随归档复制为 `manifest/region_manifest_route_v3.csv`、`metrics/route_metrics_per_image.csv`、`metrics/route_metrics_summary.csv` 和 `metrics/route_v3_eval.log`。可用 `RUN_REGION_EVAL=0` 关闭，或通过 `REGION_EVAL`、`REGION_PYTHON` 指定评估器和环境。
+
+### ReDiffuse 官方模型长任务
+
+ReDiffuse 已由总一键脚本在独占卡上并行启动。也可以只运行下面的独立脚本；推理固定使用 Python 3.8 环境，普通全图指标和 route3 三区域指标使用 p312：
+
+```bash
+cd /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1
+REDIFFUSE_GPU=3 \
+OUTPUT_ROOT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/runs/rediffuse_real_v1 \
+bash run_rediffuse_real_v1.sh
+```
+
+默认环境分别是 `/root/miniconda3/envs/rediffuse38_0806/bin/python` 和 `/root/miniconda3/envs/p312/bin/python`，可用 `REDIFFUSE_PYTHON`、`EVAL_PYTHON` 覆盖。脚本依次完成官方 `model.pt` 推理、`all` 全图指标、route3 三区域指标，并在全部校验成功后原子更新 `RealSceneVal68/ReDiffuse_ORIGIN/{manifest,metrics,predictions}`。原始运行结果保留在 `OUTPUT_ROOT`。断线后重新执行时默认跳过已有预测；需要重算预测时设置 `OVERWRITE=1`。
+
+所有当前正式评估入口默认都同时运行两类评估：`mfif_eval_toolkit` 的全图指标和 route3 的三区域指标。只有显式设置 `RUN_REGION_EVAL=0` 才跳过三区域指标；ReDiffuse 脚本还可分别通过 `RUN_EVAL=0`、`RUN_ARCHIVE=0` 关闭全图评估或归档。
 
 注意：四种方法中只有 SwinFusion 有监督训练流程；IFCNN 加载官方 checkpoint，ZMFF 是逐样本零样本优化，DSIFT 是非学习算法。这三种显示“跳过训练”属于预期行为。
 

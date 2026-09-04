@@ -30,6 +30,9 @@ PREFLIGHT_WORKERS="${PREFLIGHT_WORKERS:-8}"
 RUN_ARCHIVE="${RUN_ARCHIVE:-1}"
 ARCHIVE_ROOT="${ARCHIVE_ROOT:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/models/COMPARE_RESULTS_TWO_DATASETS_20260827/RealSceneVal68}"
 RUN_REGION_EVAL="${RUN_REGION_EVAL:-1}"
+RUN_REDIFFUSE="${RUN_REDIFFUSE:-1}"
+REDIFFUSE_PYTHON="${REDIFFUSE_PYTHON:-/root/miniconda3/envs/rediffuse38_0806/bin/python}"
+REDIFFUSE_OUTPUT_ROOT="${REDIFFUSE_OUTPUT_ROOT:-$OUTPUT_ROOT}"
 REGION_PYTHON="${REGION_PYTHON:-}"
 REGION_EVAL="${REGION_EVAL:-$PROJECT_ROOT/route3/region_eval_route_v3.py}"
 REGION_DATASET="${REGION_DATASET:-RealSceneVal68}"
@@ -56,9 +59,17 @@ fi
 [[ -n "$GPUS" ]] || { echo '[ERROR] No GPU found. Set GPUS=0 or GPUS=0,1,2.' >&2; exit 2; }
 IFS=',' read -r -a GPU_LIST <<<"$GPUS"
 (( ${#GPU_LIST[@]} >= 1 )) || { echo '[ERROR] GPUS is empty' >&2; exit 2; }
-TRAIN_GPU="${TRAIN_GPU:-${GPU_LIST[0]}}"
-if [[ ! ",$GPUS," == *",$TRAIN_GPU,"* ]]; then
-  echo "[ERROR] TRAIN_GPU=$TRAIN_GPU is not included in GPUS=$GPUS" >&2
+REDIFFUSE_GPU="${REDIFFUSE_GPU:-${GPU_LIST[${#GPU_LIST[@]}-1]}}"
+WORKER_GPU_LIST=()
+for gpu in "${GPU_LIST[@]}"; do
+  if [[ "$RUN_REDIFFUSE" == 1 && ${#GPU_LIST[@]} -gt 1 && "$gpu" == "$REDIFFUSE_GPU" ]]; then continue; fi
+  WORKER_GPU_LIST+=("$gpu")
+done
+(( ${#WORKER_GPU_LIST[@]} >= 1 )) || { echo '[ERROR] no GPU remains for the main methods' >&2; exit 2; }
+TRAIN_GPU="${TRAIN_GPU:-${WORKER_GPU_LIST[0]}}"
+worker_csv="$(IFS=,; echo "${WORKER_GPU_LIST[*]}")"
+if [[ ! ",$worker_csv," == *",$TRAIN_GPU,"* ]]; then
+  echo "[ERROR] TRAIN_GPU=$TRAIN_GPU is not included in main worker GPUs=$worker_csv" >&2
   exit 2
 fi
 
@@ -80,25 +91,36 @@ fi
 EVAL_EXTRA_ARGS="${EVAL_EXTRA_ARGS:-}"
 [[ "$VAL_MODE" != gt ]] || EVAL_EXTRA_ARGS="${EVAL_EXTRA_ARGS} --source-metrics-on-gt"
 
-echo "[CONFIG] project_root=$PROJECT_ROOT GPUs=$GPUS train_gpu=$TRAIN_GPU train=$TRAIN_META val=$VAL_META val_mode=$VAL_MODE output=$OUTPUT_ROOT"
+echo "[CONFIG] project_root=$PROJECT_ROOT GPUs=$GPUS main_gpus=$worker_csv train_gpu=$TRAIN_GPU rediffuse=$RUN_REDIFFUSE rediffuse_gpu=$REDIFFUSE_GPU"
+echo "[CONFIG] train=$TRAIN_META val=$VAL_META val_mode=$VAL_MODE output=$OUTPUT_ROOT"
 mkdir -p "$OUTPUT_ROOT/logs"
+STATUS_DIR="$(mktemp -d "$OUTPUT_ROOT/.task-status.XXXXXX")"
 
-if [[ "$RUN_TRAIN" == 1 ]]; then
-  echo "[TRAIN] SwinFusion single-GPU training on physical GPU $TRAIN_GPU"
-  RUN_TRAIN=1 RUN_INFER=0 RUN_EVAL=0 CUDA_VISIBLE_GPU="$TRAIN_GPU" \
-    TRAIN_META="$TRAIN_META" VAL_META="$VAL_META" OUTPUT_ROOT="$OUTPUT_ROOT" TAG="$TAG" \
-    MAX_SAMPLES="$TRAIN_MAX_SAMPLES" MAX_TRAIN_STEPS="$MAX_TRAIN_STEPS" \
-    TRAIN_CROP_SIZE="$TRAIN_CROP_SIZE" TRAIN_BATCH_SIZE="$TRAIN_BATCH_SIZE" \
-    NUM_WORKERS="$NUM_WORKERS" SEED="$SEED" PYTHON="$PYTHON" \
-    bash "$ROOT/scripts/pipelines/swinfusion.sh" 2>&1 | tee "$OUTPUT_ROOT/logs/swinfusion_train.log"
+run_rediffuse_job() {
+  REDIFFUSE_GPU="$REDIFFUSE_GPU" VAL_META="$VAL_META" OUTPUT_ROOT="$REDIFFUSE_OUTPUT_ROOT" \
+    ARCHIVE_ROOT="$ARCHIVE_ROOT" REDIFFUSE_PYTHON="$REDIFFUSE_PYTHON" \
+    EVAL_PYTHON="$REGION_PYTHON" MAX_SAMPLES="$INFER_MAX_SAMPLES" OVERWRITE="$OVERWRITE" \
+    SEED="$SEED" RUN_INFER="$RUN_INFER" RUN_EVAL="$RUN_EVAL" \
+    RUN_REGION_EVAL="$RUN_REGION_EVAL" RUN_ARCHIVE="$RUN_ARCHIVE" \
+    bash "$ROOT/run_rediffuse_real_v1.sh"
+}
+
+rediffuse_pid=""
+if [[ "$RUN_REDIFFUSE" == 1 && "$RUN_INFER" == 1 && ${#GPU_LIST[@]} -gt 1 ]]; then
+  echo "[LAUNCH] ReDiffuse_ORIGIN dedicated physical GPU $REDIFFUSE_GPU"
+  (
+    if run_rediffuse_job 2>&1 | tee "$OUTPUT_ROOT/logs/rediffuse_origin.log"; then
+      touch "$STATUS_DIR/rediffuse.ok"
+    else
+      touch "$STATUS_DIR/rediffuse.failed"
+      echo '[FAILED] ReDiffuse_ORIGIN; other tasks continue' >&2
+    fi
+  ) &
+  rediffuse_pid="$!"
+elif [[ "$RUN_REDIFFUSE" == 1 && "$RUN_INFER" == 1 ]]; then
+  echo "[WARN] only one GPU supplied; ReDiffuse_ORIGIN will run after the main methods on GPU $REDIFFUSE_GPU"
 fi
 
-if [[ "$RUN_INFER" != 1 && "$RUN_EVAL" != 1 ]]; then
-  echo '[DONE] training stage complete'
-  exit 0
-fi
-
-methods=(swinfusion ifcnn zmff dsift)
 run_method() {
   local method="$1" gpu="$2" out_subdir method_label
   case "$method" in
@@ -109,57 +131,147 @@ run_method() {
   esac
   local spec="RealMFIFZeddV4|$VAL_MODE|$VAL_META|$out_subdir|$EVAL_METRICS"
   echo "[JOB] method=$method physical_gpu=$gpu"
-  RUN_TRAIN=0 RUN_INFER="$RUN_INFER" RUN_EVAL="$RUN_EVAL" CUDA_VISIBLE_GPU="$gpu" \
+  if ! RUN_TRAIN=0 RUN_INFER="$RUN_INFER" RUN_EVAL="$RUN_EVAL" CUDA_VISIBLE_GPU="$gpu" \
     TEST_META="$VAL_META" OUTPUT_ROOT="$OUTPUT_ROOT" TAG="$TAG" MAX_SAMPLES="$INFER_MAX_SAMPLES" \
     OVERWRITE="$OVERWRITE" SEED="$SEED" PYTHON="$PYTHON" EVAL_SPECS="$spec" \
     EVAL_EXTRA_ARGS="$EVAL_EXTRA_ARGS" IFCNN_CKPT="${IFCNN_CKPT:-$ROOT/baselines/IFCNN/Code/snapshots/IFCNN-MAX.pth}" \
     SWINFUSION_CKPT="${SWINFUSION_CKPT:-}" SWINFUSION_CHECKPOINT_MODE=metadata-y \
-    ZMFF_ITERATIONS="${ZMFF_ITERATIONS:-1300}" bash "$ROOT/scripts/pipelines/$method.sh"
+    ZMFF_ITERATIONS="${ZMFF_ITERATIONS:-1300}" bash "$ROOT/scripts/pipelines/$method.sh"; then
+    echo "[FAILED] $method inference/full-image evaluation" >&2
+    return 1
+  fi
   if [[ "$RUN_REGION_EVAL" == 1 ]]; then
     local region_root="$OUTPUT_ROOT/region_eval"
     local region_manifest="$region_root/manifests/$REGION_DATASET/$method_label/region_manifest_route_v3.csv"
     local region_metrics="$region_root/metrics/$REGION_DATASET/$method_label"
-    "$PYTHON" "$ROOT/tools/build_region_manifest.py" \
+    if ! "$PYTHON" "$ROOT/tools/build_region_manifest.py" \
       --metadata "$VAL_META" \
       --inference-manifest "$OUTPUT_ROOT/infer/$out_subdir/inference_manifest.csv" \
       --output "$region_manifest" --dataset "$REGION_DATASET" --method "$method_label" \
-      --route-sum-tolerance 0.05
+      --route-sum-tolerance 0.05; then
+      echo "[FAILED] $method route3 manifest" >&2
+      return 1
+    fi
     mkdir -p "$region_metrics"
-    CUDA_VISIBLE_DEVICES="$gpu" "$REGION_PYTHON" "$REGION_EVAL" \
+    if ! CUDA_VISIBLE_DEVICES="$gpu" "$REGION_PYTHON" "$REGION_EVAL" \
       --manifest "$region_manifest" --output-dir "$region_metrics" \
       --device cuda:0 --lpips-net alex \
       --route-confidence 0 --route-sum-tolerance 0.05 \
       --patch-size 64 --patch-stride 32 \
       --g-patch-min-coverage 0.80 --g-rsr-psnr-margin 0.20 \
-      2>&1 | tee "$region_metrics/eval.log"
+      2>&1 | tee "$region_metrics/eval.log"; then
+      echo "[FAILED] $method route3 evaluation" >&2
+      return 1
+    fi
   fi
 }
 
 pids=()
-for slot in "${!GPU_LIST[@]}"; do
+launch_method_queue() {
+  local gpu="$1"
+  shift
   (
-    for index in "${!methods[@]}"; do
-      (( index % ${#GPU_LIST[@]} == slot )) || continue
-      run_method "${methods[$index]}" "${GPU_LIST[$slot]}" \
-        2>&1 | tee "$OUTPUT_ROOT/logs/${methods[$index]}_infer_eval.log"
+    for method in "$@"; do
+      if run_method "$method" "$gpu" \
+          2>&1 | tee "$OUTPUT_ROOT/logs/${method}_infer_eval.log"; then
+        touch "$STATUS_DIR/$method.ok"
+      else
+        touch "$STATUS_DIR/$method.failed"
+        echo "[FAILED] $method; next task on this GPU continues" >&2
+      fi
     done
   ) &
   pids+=("$!")
-done
-failed=0
-for pid in "${pids[@]}"; do wait "$pid" || failed=$((failed + 1)); done
-echo "[DONE] worker_failures=$failed outputs=$OUTPUT_ROOT"
-(( failed == 0 )) || exit 1
+}
+
+training_pid=""
+if [[ "$RUN_TRAIN" == 1 ]]; then
+  echo "[LAUNCH] SwinFusion training on physical GPU $TRAIN_GPU"
+  (
+    if RUN_TRAIN=1 RUN_INFER=0 RUN_EVAL=0 CUDA_VISIBLE_GPU="$TRAIN_GPU" \
+      TRAIN_META="$TRAIN_META" VAL_META="$VAL_META" OUTPUT_ROOT="$OUTPUT_ROOT" TAG="$TAG" \
+      MAX_SAMPLES="$TRAIN_MAX_SAMPLES" MAX_TRAIN_STEPS="$MAX_TRAIN_STEPS" \
+      TRAIN_CROP_SIZE="$TRAIN_CROP_SIZE" TRAIN_BATCH_SIZE="$TRAIN_BATCH_SIZE" \
+      NUM_WORKERS="$NUM_WORKERS" SEED="$SEED" PYTHON="$PYTHON" \
+      bash "$ROOT/scripts/pipelines/swinfusion.sh" 2>&1 | tee "$OUTPUT_ROOT/logs/swinfusion_train.log"; then
+      touch "$STATUS_DIR/swinfusion_train.ok"
+    else
+      touch "$STATUS_DIR/swinfusion_train.failed"
+      echo '[FAILED] SwinFusion training; other GPU tasks continue' >&2
+    fi
+  ) &
+  training_pid="$!"
+fi
+
+if [[ "$RUN_INFER" == 1 || "$RUN_EVAL" == 1 ]]; then
+  if [[ "$RUN_TRAIN" == 1 && ${#WORKER_GPU_LIST[@]} -gt 1 ]]; then
+    # Keep TRAIN_GPU exclusive. Independent methods immediately occupy every
+    # other main GPU while SwinFusion is training.
+    EARLY_GPU_LIST=()
+    for gpu in "${WORKER_GPU_LIST[@]}"; do [[ "$gpu" == "$TRAIN_GPU" ]] || EARLY_GPU_LIST+=("$gpu"); done
+    early_methods=(ifcnn zmff dsift)
+    for slot in "${!EARLY_GPU_LIST[@]}"; do
+      queue=()
+      for index in "${!early_methods[@]}"; do
+        (( index % ${#EARLY_GPU_LIST[@]} == slot )) && queue+=("${early_methods[$index]}")
+      done
+      launch_method_queue "${EARLY_GPU_LIST[$slot]}" "${queue[@]}"
+    done
+    # SwinFusion inference needs the new checkpoint, but does not need to wait
+    # for IFCNN/ZMFF/DSIFT on the other cards.
+    wait "$training_pid" || true
+    training_pid=""
+    launch_method_queue "$TRAIN_GPU" swinfusion
+  else
+    all_methods=(swinfusion ifcnn zmff dsift)
+    for slot in "${!WORKER_GPU_LIST[@]}"; do
+      queue=()
+      for index in "${!all_methods[@]}"; do
+        (( index % ${#WORKER_GPU_LIST[@]} == slot )) && queue+=("${all_methods[$index]}")
+      done
+      launch_method_queue "${WORKER_GPU_LIST[$slot]}" "${queue[@]}"
+    done
+  fi
+fi
+
+[[ -z "$training_pid" ]] || wait "$training_pid" || true
+for pid in "${pids[@]}"; do wait "$pid" || true; done
 
 if [[ "$RUN_ARCHIVE" == 1 ]]; then
-  [[ "$RUN_INFER" == 1 && "$RUN_EVAL" == 1 ]] || {
-    echo '[ERROR] RUN_ARCHIVE=1 requires RUN_INFER=1 and RUN_EVAL=1' >&2
-    exit 2
-  }
-  echo "[ARCHIVE] target=$ARCHIVE_ROOT"
-  archive_args=(--output-root "$OUTPUT_ROOT" --archive-root "$ARCHIVE_ROOT"
-                --tag "$TAG" --dataset RealMFIFZeddV4
-                --region-dataset "$REGION_DATASET")
-  [[ "$RUN_REGION_EVAL" != 1 ]] || archive_args+=(--require-region)
-  "$PYTHON" "$ROOT/tools/archive_real_scene_results.py" "${archive_args[@]}"
+  if [[ "$RUN_INFER" != 1 || "$RUN_EVAL" != 1 ]]; then
+    touch "$STATUS_DIR/main_archive.failed"
+    echo '[FAILED] RUN_ARCHIVE=1 requires RUN_INFER=1 and RUN_EVAL=1; remaining tasks continue' >&2
+  else
+    echo "[ARCHIVE] target=$ARCHIVE_ROOT"
+    for archive_method in SwinFusion IFCNN ZMFF DSIFT; do
+      archive_args=(--output-root "$OUTPUT_ROOT" --archive-root "$ARCHIVE_ROOT"
+                    --tag "$TAG" --dataset RealMFIFZeddV4 --methods "$archive_method"
+                    --region-dataset "$REGION_DATASET")
+      [[ "$RUN_REGION_EVAL" != 1 ]] || archive_args+=(--require-region)
+      if "$PYTHON" "$ROOT/tools/archive_real_scene_results.py" "${archive_args[@]}"; then
+        touch "$STATUS_DIR/archive_${archive_method}.ok"
+      else
+        touch "$STATUS_DIR/archive_${archive_method}.failed"
+        echo "[FAILED] $archive_method archive; remaining archives continue" >&2
+      fi
+    done
+  fi
 fi
+
+if [[ "$RUN_REDIFFUSE" == 1 && "$RUN_INFER" == 1 && -z "$rediffuse_pid" ]]; then
+  if run_rediffuse_job 2>&1 | tee "$OUTPUT_ROOT/logs/rediffuse_origin.log"; then
+    touch "$STATUS_DIR/rediffuse.ok"
+  else
+    touch "$STATUS_DIR/rediffuse.failed"
+  fi
+elif [[ -n "$rediffuse_pid" ]]; then
+  wait "$rediffuse_pid" || true
+fi
+
+failed_files=("$STATUS_DIR"/*.failed)
+if [[ -e "${failed_files[0]}" ]]; then
+  echo "[DONE WITH FAILURES] outputs=$OUTPUT_ROOT"
+  for failure in "${failed_files[@]}"; do echo "  - $(basename "$failure" .failed)"; done
+  exit 1
+fi
+echo "[DONE] all requested tasks succeeded; outputs=$OUTPUT_ROOT"

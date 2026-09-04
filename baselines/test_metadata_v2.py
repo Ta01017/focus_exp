@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "ReDiffuse"))
 
 from diffusion_sampling import validated_sampling_steps
 from metadata_training import MetadataFusionDataset, warn_split_overlap
+from metadata_dataset import get_sample_id
 from ReDiffuse.runtime_check import require_official_b_conv
 from SwinFusion.training_run import configure_training_run
 from SwinFusion.utils import utils_option
@@ -36,6 +37,14 @@ def test_external_cuda_visible_devices_is_preserved(monkeypatch):
     config = ROOT / "SwinFusion" / "options" / "swinir" / "train_swinfusion_mff.json"
     utils_option.parse(str(config), is_train=True)
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "2"
+
+
+def test_sample_ids_cannot_collide_across_mixed_metadata():
+    first = get_sample_id({"source_dataset": "set/a", "source_index": 1}, 7)
+    second = get_sample_id({"source_dataset": "set/a", "source_index": 1}, 8)
+    third = get_sample_id({"source_dataset": "set/b", "source_index": 1}, 7)
+    assert len({first, second, third}) == 3
+    assert first.endswith("__idx000007")
 
 
 def _opt():

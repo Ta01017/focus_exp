@@ -93,6 +93,8 @@ class MetadataFusionDataset(Dataset):
             "a_path": str(sample["a_path"]), "b_path": str(sample["b_path"]),
             "gt_path": str(sample["gt_path"]), "A_path": str(sample["a_path"]),
             "B_path": str(sample["b_path"]), "GT_path": str(sample["gt_path"]),
+            "original_width": sample["original_size"][0],
+            "original_height": sample["original_size"][1],
             "prompt": sample["prompt"], "source_dataset": sample["source_dataset"],
             "source_index": "" if sample["source_index"] is None else str(sample["source_index"]),
         }

@@ -61,7 +61,14 @@ def get_sample_id(item, index):
             raw = raw[:-len(suffix)]
             break
     raw = re.sub(r"[^0-9A-Za-z._-]+", "_", raw).strip("._-") or str(index)
-    return raw.zfill(6) if raw.isdigit() else raw
+    raw = raw.zfill(6) if raw.isdigit() else raw
+    # Names and source_index values are commonly reused by every constituent
+    # dataset in a mixed metadata file.  Include both provenance (when
+    # available) and the immutable metadata position so predictions can never
+    # silently overwrite one another.
+    dataset = re.sub(r"[^0-9A-Za-z._-]+", "_", str(item.get("source_dataset", ""))).strip("._-")
+    prefix = f"{dataset}_" if dataset else ""
+    return f"{prefix}{raw}__idx{int(index):06d}"
 
 
 sample_id = get_sample_id
@@ -180,9 +187,12 @@ def synchronized_preprocess(sample, size=None, crop_size=None, mode="val", seed=
             target_height = ((target_height + pad_multiple - 1) // pad_multiple) * pad_multiple
         if (target_width, target_height) == (width, height):
             return values
-        left = (target_width - width) // 2
+        # Inference/validation padding is placed on the bottom/right so the
+        # original valid rectangle is exactly [:height, :width].  Training
+        # undersize padding remains symmetric before the random crop.
+        left = 0 if crop_size is None else (target_width - width) // 2
         right = target_width - width - left
-        top = (target_height - height) // 2
+        top = 0 if crop_size is None else (target_height - height) // 2
         bottom = target_height - height - top
         result = []
         for image in values:
