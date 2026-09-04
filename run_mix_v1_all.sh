@@ -6,12 +6,15 @@ PROJECT_ROOT="${FOCUS_EXP_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 # Pipelines historically consume ROOT. Always point it at this repository;
 # never inherit a generic shell ROOT that may mean the dataset storage root.
 ROOT="$PROJECT_ROOT"
+OUTPUT_ROOT_WAS_SET="${OUTPUT_ROOT+x}"
+ARCHIVE_ROOT_WAS_SET="${ARCHIVE_ROOT+x}"
 PYTHON="${PYTHON:-python3}"
 TRAIN_META="${TRAIN_META:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json}"
 VAL_META="${VAL_META:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json}"
 OUTPUT_ROOT="${OUTPUT_ROOT:-$ROOT/outputs/mfif_mix_v1}"
 TAG="${TAG:-swinfusion_mix_v1_y}"
 GPUS="${GPUS:-}"
+SMOKE="${SMOKE:-0}"
 RUN_TRAIN="${RUN_TRAIN:-1}"
 RUN_INFER="${RUN_INFER:-1}"
 RUN_EVAL="${RUN_EVAL:-1}"
@@ -36,6 +39,28 @@ REDIFFUSE_OUTPUT_ROOT="${REDIFFUSE_OUTPUT_ROOT:-$OUTPUT_ROOT}"
 REGION_PYTHON="${REGION_PYTHON:-}"
 REGION_EVAL="${REGION_EVAL:-$PROJECT_ROOT/route3/region_eval_route_v3.py}"
 REGION_DATASET="${REGION_DATASET:-RealSceneVal68}"
+ZMFF_ITERATIONS="${ZMFF_ITERATIONS:-1300}"
+
+if [[ "$SMOKE" == 1 ]]; then
+  MAX_TRAIN_STEPS=2
+  TRAIN_MAX_SAMPLES=4
+  INFER_MAX_SAMPLES=1
+  TRAIN_BATCH_SIZE=1
+  NUM_WORKERS=0
+  ZMFF_ITERATIONS=2
+  PREFLIGHT_TRAIN_MAX_CHECK=4
+  PREFLIGHT_VAL_MAX_CHECK=1
+  OVERWRITE=1
+  if [[ -z "$OUTPUT_ROOT_WAS_SET" ]]; then
+    OUTPUT_ROOT="$ROOT/outputs/smoke_$(date +%Y%m%d_%H%M%S)"
+    REDIFFUSE_OUTPUT_ROOT="$OUTPUT_ROOT"
+  fi
+  # Exercise the archive code without ever replacing formal comparison data.
+  if [[ -z "$ARCHIVE_ROOT_WAS_SET" ]]; then
+    ARCHIVE_ROOT="$OUTPUT_ROOT/smoke_archive/RealSceneVal68"
+  fi
+  echo '[SMOKE] 2 SwinFusion steps, 1 inference/evaluation sample per method, temporary archive'
+fi
 if [[ -z "$REGION_PYTHON" ]]; then
   if [[ -x /root/miniconda3/envs/p312/bin/python ]]; then
     REGION_PYTHON=/root/miniconda3/envs/p312/bin/python
@@ -91,7 +116,7 @@ fi
 EVAL_EXTRA_ARGS="${EVAL_EXTRA_ARGS:-}"
 [[ "$VAL_MODE" != gt ]] || EVAL_EXTRA_ARGS="${EVAL_EXTRA_ARGS} --source-metrics-on-gt"
 
-echo "[CONFIG] project_root=$PROJECT_ROOT GPUs=$GPUS main_gpus=$worker_csv train_gpu=$TRAIN_GPU rediffuse=$RUN_REDIFFUSE rediffuse_gpu=$REDIFFUSE_GPU"
+echo "[CONFIG] smoke=$SMOKE project_root=$PROJECT_ROOT GPUs=$GPUS main_gpus=$worker_csv train_gpu=$TRAIN_GPU rediffuse=$RUN_REDIFFUSE rediffuse_gpu=$REDIFFUSE_GPU"
 echo "[CONFIG] train=$TRAIN_META val=$VAL_META val_mode=$VAL_MODE output=$OUTPUT_ROOT"
 mkdir -p "$OUTPUT_ROOT/logs"
 STATUS_DIR="$(mktemp -d "$OUTPUT_ROOT/.task-status.XXXXXX")"
@@ -136,7 +161,7 @@ run_method() {
     OVERWRITE="$OVERWRITE" SEED="$SEED" PYTHON="$PYTHON" EVAL_SPECS="$spec" \
     EVAL_EXTRA_ARGS="$EVAL_EXTRA_ARGS" IFCNN_CKPT="${IFCNN_CKPT:-$ROOT/baselines/IFCNN/Code/snapshots/IFCNN-MAX.pth}" \
     SWINFUSION_CKPT="${SWINFUSION_CKPT:-}" SWINFUSION_CHECKPOINT_MODE=metadata-y \
-    ZMFF_ITERATIONS="${ZMFF_ITERATIONS:-1300}" bash "$ROOT/scripts/pipelines/$method.sh"; then
+    ZMFF_ITERATIONS="$ZMFF_ITERATIONS" bash "$ROOT/scripts/pipelines/$method.sh"; then
     echo "[FAILED] $method inference/full-image evaluation" >&2
     return 1
   fi

@@ -33,9 +33,8 @@ FusionDiff、ReDiffuse 的 metadata 训练适配同样支持这个混合尺寸�
 常用配置：
 
 ```bash
-# 快速试跑
-GPUS=0 TRAIN_MAX_SAMPLES=20 INFER_MAX_SAMPLES=10 MAX_TRAIN_STEPS=20 \
-  OUTPUT_ROOT=/data/runs/mfif_mix_smoke bash run_mix_v1_all.sh
+# 完整 smoke：五种方法、全图指标、route3 指标和归档流程都跑一遍
+SMOKE=1 GPUS=0,1,2,3 TRAIN_GPU=0 REDIFFUSE_GPU=3 bash run_mix_v1_all.sh
 
 # 完整训练（默认也是 20000 步）；显存不足时减小 batch 或裁剪尺寸
 GPUS=0,1 TRAIN_BATCH_SIZE=4 TRAIN_CROP_SIZE=128 MAX_TRAIN_STEPS=20000 \
@@ -45,6 +44,10 @@ GPUS=0,1 TRAIN_BATCH_SIZE=4 TRAIN_CROP_SIZE=128 MAX_TRAIN_STEPS=20000 \
 RUN_TRAIN=0 GPUS=0,1,2 OUTPUT_ROOT=/data/runs/mfif_mix_v1 \
   bash run_mix_v1_all.sh
 ```
+
+周末正式运行前强烈建议先执行一次 `SMOKE=1`。它固定使用 4 个训练样本、2 个 SwinFusion step、每种方法 1 个推理样本、2 次 ZMFF 迭代；ReDiffuse 仍使用官方要求的完整 2000 扩散步，但只处理 1 张图。Smoke 不会写正式归档：未指定 `OUTPUT_ROOT` 时会创建带时间戳的 `outputs/smoke_*`，归档目标自动放在该目录内的 `smoke_archive/RealSceneVal68`。如果显式传入 `ARCHIVE_ROOT`，则视为你明确要求使用该地址。
+
+确认 smoke 的最终输出为 `[DONE] all requested tasks succeeded` 后，再去掉 `SMOKE=1` 启动正式任务。
 
 可覆盖变量包括 `TRAIN_META`、`VAL_META`、`PYTHON`、`TAG`、`NUM_WORKERS`、`IFCNN_CKPT`、`SWINFUSION_CKPT`、`ZMFF_ITERATIONS`、`EVAL_METRICS` 和 `OVERWRITE`。验证 metadata 全部含 GT 时会自动使用 `all` 指标并同时启用源图指标；没有 GT 时自动使用 `all_no_gt`。
 
