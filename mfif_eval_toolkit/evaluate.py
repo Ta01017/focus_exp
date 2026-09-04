@@ -5,6 +5,8 @@ import argparse
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 from mfif_eval.evaluator import (
     build_skip_report,
     evaluate,
@@ -105,12 +107,23 @@ def main() -> int:
         requested_metrics,
         source_metrics_on_gt=args.source_metrics_on_gt,
     )
+    runtime_skip_report = result.attrs.get("runtime_skip_report")
+    if runtime_skip_report is not None and not runtime_skip_report.empty:
+        skip_report = pd.concat([skip_report, runtime_skip_report], ignore_index=True)
     if not skip_report.empty:
         grouped_skips = skip_report.groupby("row_id", sort=False).apply(
             lambda rows: "; ".join(f"{r.metric}:{r.reason}" for r in rows.itertuples())
         )
         for row_id, message in grouped_skips.items():
-            result.loc[result["row_id"] == row_id, "skipped_metrics"] = message
+            mask = result["row_id"] == row_id
+            previous = str(result.loc[mask, "skipped_metrics"].iloc[0]).strip()
+            # Runtime backend skips are already present on the result. Avoid
+            # duplicating them while retaining ordinary applicability skips.
+            parts = [part.strip() for part in previous.split(";") if part.strip()]
+            for part in (part.strip() for part in message.split(";") if part.strip()):
+                if part not in parts:
+                    parts.append(part)
+            result.loc[mask, "skipped_metrics"] = "; ".join(parts)
     result.to_csv(args.output_dir / "per_image.csv", index=False)
     summary.to_csv(args.output_dir / "summary.csv", index=False)
     skip_report.to_csv(args.output_dir / "skipped_metrics.csv", index=False)

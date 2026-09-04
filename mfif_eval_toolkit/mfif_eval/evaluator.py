@@ -140,6 +140,7 @@ def evaluate(
     for metric in metrics:
         output[metric] = np.nan
     output["skipped_metrics"] = ""
+    runtime_skip_rows: List[Dict[str, object]] = []
 
     skip_report = build_skip_report(
         output,
@@ -209,13 +210,28 @@ def evaluate(
 
             qcnn = QCNNMetric(tpami_root, device=qcnn_device)
         except Exception as exc:
-            if not continue_on_error:
-                raise
+            # An optional metric backend not being installed is not an image
+            # evaluation failure, even under --fail-fast.  Keep every other
+            # metric usable and record an explicit skip for QCNN instead.
             qcnn_mask = output["mode"] == "no_gt"
             if source_metrics_on_gt:
                 qcnn_mask = qcnn_mask | (output["mode"] == "gt")
-            for row_id in output.loc[qcnn_mask, "row_id"]:
-                errors[int(row_id)].append(f"qcnn init: {type(exc).__name__}: {exc}")
+            reason = f"backend_unavailable:{type(exc).__name__}: {exc}"
+            for idx, row in output.loc[qcnn_mask].iterrows():
+                previous = str(output.at[idx, "skipped_metrics"]).strip()
+                message = f"qcnn:{reason}"
+                output.at[idx, "skipped_metrics"] = f"{previous}; {message}" if previous else message
+                runtime_skip_rows.append(
+                    {
+                        "row_id": row["row_id"],
+                        "dataset": row["dataset"],
+                        "sample_id": row["sample_id"],
+                        "mode": row["mode"],
+                        "method": row["method"],
+                        "metric": "qcnn",
+                        "reason": reason,
+                    }
+                )
         if qcnn is not None:
             for idx, row in tqdm(output.iterrows(), total=len(output), desc="QCNN"):
                 if row["mode"] != "no_gt" and not (source_metrics_on_gt and row["mode"] == "gt"):
@@ -230,6 +246,10 @@ def evaluate(
                         raise
 
     output["error"] = [" | ".join(errors[int(row_id)]) for row_id in output["row_id"]]
+    output.attrs["runtime_skip_report"] = pd.DataFrame(
+        runtime_skip_rows,
+        columns=["row_id", "dataset", "sample_id", "mode", "method", "metric", "reason"],
+    )
     return output
 
 

@@ -40,10 +40,18 @@ class QCNNMetric:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = torch.device(device)
-        self.model = module.resnet34(num_classes=1000).to(self.device)
-        state = torch.load(checkpoint, map_location=self.device)
+        # The official legacy checkpoint may contain CUDA-tagged storages.
+        # Loading it directly onto a CUDA device fails on recent PyTorch with
+        # "Attempted to set ... storage on different device".  Deserialize
+        # and bind parameters on CPU first, then move the complete model.
+        self.model = module.resnet34(num_classes=1000)
+        state = torch.load(checkpoint, map_location=torch.device("cpu"), weights_only=True)
+        if isinstance(state, dict) and "state_dict" in state:
+            state = state["state_dict"]
+        if isinstance(state, dict) and state and all(str(key).startswith("module.") for key in state):
+            state = {str(key)[7:]: value for key, value in state.items()}
         self.model.load_state_dict(state)
-        self.model.eval()
+        self.model.to(self.device).eval()
 
     @staticmethod
     def _tensor(path: Path) -> torch.Tensor:
