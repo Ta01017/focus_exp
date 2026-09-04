@@ -72,6 +72,10 @@ bash run_rediffuse_real_v1.sh
 
 所有当前正式评估入口默认都同时运行两类评估：`mfif_eval_toolkit` 的全图指标和 route3 的三区域指标。只有显式设置 `RUN_REGION_EVAL=0` 才跳过三区域指标；ReDiffuse 脚本还可分别通过 `RUN_EVAL=0`、`RUN_ARCHIVE=0` 关闭全图评估或归档。
 
+若 metadata 只有 `focus_a/focus_b`，一键脚本会调用 `route3/make_routes_from_focus_ab.py`，复用论文套件 `infer_pixrestore.py` 中的权威 `focus_to_route` 实现生成归一化 `m_a/m_b/m_g`，然后运行 route3；不会用简单相减伪造第三区域。派生 metadata 和路由图保存在 `OUTPUT_ROOT/region_eval/routes`，原始 metadata 不会修改。论文套件位置可用 `ROUTE_SUITE` 覆盖。
+
+Flux2 被设计为最后一个任务：其他模型（包括 ReDiffuse）及其评估、归档全部结束后，Flux2 才独占 `GPUS` 中全部 GPU，通过 Accelerate 启动同等数量进程训练；例如 `GPUS=0,1,2,3` 就是四卡训练。训练结束后在 `FLUX2_GPU`（默认普通训练卡）做推理评估。Flux2 失败仍只记录状态，不会破坏前面结果。默认启用 `RUN_FLUX2=1`，训练使用提供的 `/data/.../focus/train_flux2.py`，推理复用 `/data/.../focus/infer_flux2_focus_fusion_batch_4B_4.py` 的 `build_pipeline/run_one`，但通过仓库适配器生成唯一文件名和标准 manifest。可用 `FLUX2_GPUS`、`FLUX2_NUM_PROCESSES`、`FLUX2_TRAIN_SCRIPT`、`FLUX2_INFER_SCRIPT`、`FLUX2_PYTHON`、`FLUX2_EPOCHS`、`FLUX2_LORA` 覆盖；暂不运行可设 `RUN_FLUX2=0`。正式训练默认5 epoch，smoke 为1个样本和1 epoch；推理输出恢复到原尺寸，并完成全图、route3 和独立 `RealSceneVal68/Flux2` 归档。
+
 注意：四种方法中只有 SwinFusion 有监督训练流程；IFCNN 加载官方 checkpoint，ZMFF 是逐样本零样本优化，DSIFT 是非学习算法。这三种显示“跳过训练”属于预期行为。
 
 核心规则固定为：

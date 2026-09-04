@@ -52,7 +52,7 @@ def main():
     p=argparse.ArgumentParser(); p.add_argument('--metadata',required=True); p.add_argument('--output-dir',required=True); p.add_argument('--checkpoint')
     p.add_argument('--device',default='cuda:0'); p.add_argument('--start-index',type=int,default=0); p.add_argument('--max-samples',type=int,default=-1)
     p.add_argument('--overwrite',type=bool01,default=False); p.add_argument('--save-inputs',type=bool01,default=False); p.add_argument('--size-policy',choices=('error','resize_b_to_a','center_crop_common'),default='error')
-    p.add_argument('--iterations',type=int,default=1300); p.add_argument('--seed',type=int,default=17); p.add_argument('--config',default=str(ROOT/'config/test.yaml')); args=p.parse_args()
+    p.add_argument('--iterations',type=int,default=1300); p.add_argument('--max-optimize-side',type=int,default=1024); p.add_argument('--seed',type=int,default=17); p.add_argument('--config',default=str(ROOT/'config/test.yaml')); args=p.parse_args()
     if args.checkpoint: raise ValueError('ZMFF is zero-shot and does not accept a checkpoint')
     if args.iterations<1: raise ValueError('--iterations must be positive')
     device=torch.device(args.device)
@@ -68,11 +68,23 @@ def main():
             # Critical isolation: seed and construct every network/optimizer inside this sample iteration.
             torch.manual_seed(args.seed+index); np.random.seed(args.seed+index)
             if device.type=='cuda': torch.cuda.manual_seed_all(args.seed+index)
-            result=optimize(sample['a'],sample['b'],config,device,args.iterations); rec['actual_iterations']=args.iterations
+            optimize_a, optimize_b = sample['a'], sample['b']
+            if args.max_optimize_side > 0 and max(optimize_a.size) > args.max_optimize_side:
+                scale = args.max_optimize_side / max(optimize_a.size)
+                optimize_size = (max(1, round(optimize_a.width * scale)),
+                                 max(1, round(optimize_a.height * scale)))
+                optimize_a = optimize_a.resize(optimize_size, Image.Resampling.LANCZOS)
+                optimize_b = optimize_b.resize(optimize_size, Image.Resampling.LANCZOS)
+                print(f"[ZMFF] sample={sample['sample_id']} optimize_size={optimize_size} output_size={sample['a'].size}")
+            result=optimize(optimize_a,optimize_b,config,device,args.iterations); rec['actual_iterations']=args.iterations
+            if result.size != sample['a'].size:
+                result = result.resize(sample['a'].size, Image.Resampling.BICUBIC)
             restore_a_size(result,sample).save(target,'PNG')
             if args.save_inputs: save_inputs(sample,out)
             rec['success']=True
-        except Exception as exc: rec['error']=f'{type(exc).__name__}: {exc}'
+        except Exception as exc:
+            rec['error']=f'{type(exc).__name__}: {exc}'
+            print(f"[ZMFF ERROR] index={index} sample={rec['sample_id']} {rec['error']}", file=sys.stderr)
         rec['runtime_seconds']=round(time.perf_counter()-started,6); records.append(rec)
     write_run_files(out,records,vars(args)|{'metadata':str(meta),'checkpoint_loaded':None,'zero_shot_reinitialize_per_sample':True})
     if not any(r['success'] for r in records): raise SystemExit(2)

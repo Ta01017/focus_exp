@@ -75,6 +75,16 @@ def test_publish_can_select_only_rediffuse(tmp_path):
     assert (target / "metrics" / "route_metrics_summary.csv").is_file()
 
 
+def test_publish_records_region_skip(tmp_path):
+    output, archive = tmp_path / "output", tmp_path / "archive"
+    fake_run(output)
+    skipped = output / "region_eval" / "SKIPPED.txt"
+    skipped.parent.mkdir(parents=True)
+    skipped.write_text("no route-v3 maps")
+    publish(output, archive, "tag", "Data", methods=("DSIFT",))
+    assert (archive / "DSIFT" / "metrics" / "region_v3_SKIPPED.txt").read_text() == "no route-v3 maps"
+
+
 def test_publish_includes_required_region_outputs(tmp_path):
     output, archive = tmp_path / "output", tmp_path / "archive"
     fake_run(output, with_region=True)

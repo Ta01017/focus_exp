@@ -4,6 +4,13 @@ import json
 from PIL import Image
 
 from build_region_manifest import build
+from check_route_v3_metadata import has_three_routes
+
+
+def test_route_v3_schema_detection_rejects_two_focus_maps():
+    assert has_three_routes({"m_a": "a", "m_b": "b", "m_g": "g"})
+    assert has_three_routes({"edit_image": ["a", "b", "ma", "mb", "mg"]})
+    assert not has_three_routes({"edit_image": ["a", "b", "focus_a", "focus_b"]})
 
 
 def write_csv(path, rows):

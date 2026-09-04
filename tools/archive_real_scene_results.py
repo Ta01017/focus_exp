@@ -24,6 +24,7 @@ METHODS = {
     "SwinFusion": MethodLayout("SwinFusion", "SwinFusion-metadata-y", "eval/SwinFusion/{tag}"),
     "ZMFF": MethodLayout("ZMFF", "ZMFF", "eval/ZMFF"),
     "ReDiffuse": MethodLayout("ReDiffuse_ORIGIN", "ReDiffuse-official-y", "eval/ReDiffuse/{tag}"),
+    "Flux2": MethodLayout("Flux2", "Flux2", "eval/Flux2/{tag}"),
 }
 DEFAULT_METHODS = ("DSIFT", "IFCNN", "SwinFusion", "ZMFF")
 REQUIRED_METRICS = ("per_image.csv", "summary.csv", "skipped_metrics.csv", "run_metadata.json")
@@ -117,6 +118,10 @@ def stage_method(output_root: Path, stage_root: Path, method: str, tag: str,
             copy_file(region_metrics / name, metrics / target_name)
         if len(read_csv(region_metrics / "route_metrics_per_image.csv")) != len(successful):
             raise ValueError(f"{method}: region metric row count does not match successful inference rows")
+    else:
+        region_skip = output_root / "region_eval" / "SKIPPED.txt"
+        if region_skip.is_file():
+            copy_file(region_skip, metrics / "region_v3_SKIPPED.txt")
     if len(list(predictions.glob("*_pred.png"))) != len(successful):
         raise ValueError(f"{method}: staged prediction count validation failed")
     return len(successful), method_stage

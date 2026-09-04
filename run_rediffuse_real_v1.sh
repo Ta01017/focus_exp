@@ -23,6 +23,7 @@ RUN_REGION_EVAL="${RUN_REGION_EVAL:-1}"
 RUN_ARCHIVE="${RUN_ARCHIVE:-1}"
 REGION_EVAL="${REGION_EVAL:-$ROOT/route3/region_eval_route_v3.py}"
 REGION_DATASET="${REGION_DATASET:-RealSceneVal68}"
+ROUTE_SUITE="${ROUTE_SUITE:-$DATA_ROOT/focus/pixrestore_mfif_paper_suite_v7_20260831}"
 
 for required in "$VAL_META" "$REDIFFUSE_CKPT" "$REDIFFUSE_PYTHON" "$EVAL_PYTHON" "$REGION_EVAL"; do
   [[ -e "$required" ]] || { echo "[ERROR] required path not found: $required" >&2; exit 2; }
@@ -30,6 +31,8 @@ done
 [[ "$RUN_INFER" == 1 || "$RUN_EVAL" != 1 ]] || { echo '[ERROR] RUN_EVAL=1 requires RUN_INFER=1' >&2; exit 2; }
 [[ "$RUN_INFER" == 1 || "$RUN_REGION_EVAL" != 1 ]] || { echo '[ERROR] RUN_REGION_EVAL=1 requires RUN_INFER=1' >&2; exit 2; }
 mkdir -p "$OUTPUT_ROOT/logs"
+
+EFFECTIVE_RUN_REGION_EVAL="$RUN_REGION_EVAL"
 
 echo "[CONFIG] ReDiffuse_ORIGIN gpu=$REDIFFUSE_GPU infer_python=$REDIFFUSE_PYTHON eval_python=$EVAL_PYTHON"
 echo "[CONFIG] metadata=$VAL_META output=$OUTPUT_ROOT archive=$ARCHIVE_ROOT"
@@ -44,11 +47,18 @@ RUN_TRAIN=0 RUN_INFER="$RUN_INFER" RUN_EVAL="$RUN_EVAL" \
   EVAL_SPECS="$SPEC" EVAL_EXTRA_ARGS='--source-metrics-on-gt' \
   bash "$ROOT/scripts/pipelines/rediffuse.sh" 2>&1 | tee "$OUTPUT_ROOT/logs/rediffuse_infer_full_eval.log"
 
-if [[ "$RUN_REGION_EVAL" == 1 ]]; then
+if [[ "$EFFECTIVE_RUN_REGION_EVAL" == 1 ]]; then
   region_manifest="$OUTPUT_ROOT/region_eval/manifests/$REGION_DATASET/ReDiffuse_ORIGIN/region_manifest_route_v3.csv"
   region_metrics="$OUTPUT_ROOT/region_eval/metrics/$REGION_DATASET/ReDiffuse_ORIGIN"
-  "$EVAL_PYTHON" "$ROOT/tools/build_region_manifest.py" \
+  route_dir="$OUTPUT_ROOT/region_eval/routes/$REGION_DATASET/ReDiffuse_ORIGIN"
+  route_metadata="$route_dir/metadata_route_v3.json"
+  "$EVAL_PYTHON" "$ROOT/tools/prepare_route_v3_metadata.py" \
     --metadata "$VAL_META" \
+    --inference-manifest "$OUTPUT_ROOT/infer/ReDiffuse-official-y/inference_manifest.csv" \
+    --suite "$ROUTE_SUITE" --converter "$ROOT/route3/make_routes_from_focus_ab.py" \
+    --output-dir "$route_dir" --output-metadata "$route_metadata"
+  "$EVAL_PYTHON" "$ROOT/tools/build_region_manifest.py" \
+    --metadata "$route_metadata" \
     --inference-manifest "$OUTPUT_ROOT/infer/ReDiffuse-official-y/inference_manifest.csv" \
     --output "$region_manifest" --dataset "$REGION_DATASET" --method ReDiffuse_ORIGIN \
     --route-sum-tolerance 0.05
@@ -67,7 +77,7 @@ if [[ "$RUN_ARCHIVE" == 1 ]]; then
   archive_args=(--output-root "$OUTPUT_ROOT" --archive-root "$ARCHIVE_ROOT"
                 --tag "$TAG" --dataset RealMFIFZeddV4 --methods ReDiffuse
                 --region-dataset "$REGION_DATASET")
-  [[ "$RUN_REGION_EVAL" != 1 ]] || archive_args+=(--require-region)
+  [[ "$EFFECTIVE_RUN_REGION_EVAL" != 1 ]] || archive_args+=(--require-region)
   "$EVAL_PYTHON" "$ROOT/tools/archive_real_scene_results.py" "${archive_args[@]}"
 fi
 

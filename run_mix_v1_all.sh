@@ -34,12 +34,17 @@ RUN_ARCHIVE="${RUN_ARCHIVE:-1}"
 ARCHIVE_ROOT="${ARCHIVE_ROOT:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/models/COMPARE_RESULTS_TWO_DATASETS_20260827/RealSceneVal68}"
 RUN_REGION_EVAL="${RUN_REGION_EVAL:-1}"
 RUN_REDIFFUSE="${RUN_REDIFFUSE:-1}"
+RUN_FLUX2="${RUN_FLUX2:-1}"
+FLUX2_PIPELINE="${FLUX2_PIPELINE:-$PROJECT_ROOT/run_flux2_real_v1.sh}"
+FLUX2_GPU="${FLUX2_GPU:-}"
 REDIFFUSE_PYTHON="${REDIFFUSE_PYTHON:-/root/miniconda3/envs/rediffuse38_0806/bin/python}"
 REDIFFUSE_OUTPUT_ROOT="${REDIFFUSE_OUTPUT_ROOT:-$OUTPUT_ROOT}"
 REGION_PYTHON="${REGION_PYTHON:-}"
 REGION_EVAL="${REGION_EVAL:-$PROJECT_ROOT/route3/region_eval_route_v3.py}"
 REGION_DATASET="${REGION_DATASET:-RealSceneVal68}"
+ROUTE_SUITE="${ROUTE_SUITE:-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/pixrestore_mfif_paper_suite_v7_20260831}"
 ZMFF_ITERATIONS="${ZMFF_ITERATIONS:-1300}"
+ZMFF_MAX_SIDE="${ZMFF_MAX_SIDE:-1024}"
 
 if [[ "$SMOKE" == 1 ]]; then
   MAX_TRAIN_STEPS=2
@@ -48,6 +53,7 @@ if [[ "$SMOKE" == 1 ]]; then
   TRAIN_BATCH_SIZE=1
   NUM_WORKERS=0
   ZMFF_ITERATIONS=2
+  ZMFF_MAX_SIDE=256
   PREFLIGHT_TRAIN_MAX_CHECK=4
   PREFLIGHT_VAL_MAX_CHECK=1
   if [[ -z "$OUTPUT_ROOT_WAS_SET" ]]; then
@@ -91,6 +97,7 @@ for gpu in "${GPU_LIST[@]}"; do
 done
 (( ${#WORKER_GPU_LIST[@]} >= 1 )) || { echo '[ERROR] no GPU remains for the main methods' >&2; exit 2; }
 TRAIN_GPU="${TRAIN_GPU:-${WORKER_GPU_LIST[0]}}"
+FLUX2_GPU="${FLUX2_GPU:-$TRAIN_GPU}"
 worker_csv="$(IFS=,; echo "${WORKER_GPU_LIST[*]}")"
 if [[ ! ",$worker_csv," == *",$TRAIN_GPU,"* ]]; then
   echo "[ERROR] TRAIN_GPU=$TRAIN_GPU is not included in main worker GPUs=$worker_csv" >&2
@@ -109,11 +116,14 @@ echo "[PREFLIGHT] checking validation metadata"
   --max-check "$PREFLIGHT_VAL_MAX_CHECK" --workers "$PREFLIGHT_WORKERS"
 VAL_MODE="$("$PYTHON" "$ROOT/tools/check_mfif_metadata.py" --metadata "$VAL_META" \
   --max-check "$PREFLIGHT_VAL_MAX_CHECK" --print-eval-mode)"
+EFFECTIVE_RUN_REGION_EVAL="$RUN_REGION_EVAL"
+REGION_META="$VAL_META"
 if [[ "$EVAL_METRICS" == auto ]]; then
   if [[ "$VAL_MODE" == gt ]]; then EVAL_METRICS=all; else EVAL_METRICS=all_no_gt; fi
 fi
 EVAL_EXTRA_ARGS="${EVAL_EXTRA_ARGS:-}"
 [[ "$VAL_MODE" != gt ]] || EVAL_EXTRA_ARGS="${EVAL_EXTRA_ARGS} --source-metrics-on-gt"
+[[ "$SMOKE" != 1 ]] || EVAL_EXTRA_ARGS="${EVAL_EXTRA_ARGS} --fail-fast"
 
 echo "[CONFIG] smoke=$SMOKE project_root=$PROJECT_ROOT GPUs=$GPUS main_gpus=$worker_csv train_gpu=$TRAIN_GPU rediffuse=$RUN_REDIFFUSE rediffuse_gpu=$REDIFFUSE_GPU"
 echo "[CONFIG] train=$TRAIN_META val=$VAL_META val_mode=$VAL_MODE output=$OUTPUT_ROOT"
@@ -125,7 +135,7 @@ run_rediffuse_job() {
     ARCHIVE_ROOT="$ARCHIVE_ROOT" REDIFFUSE_PYTHON="$REDIFFUSE_PYTHON" \
     EVAL_PYTHON="$REGION_PYTHON" MAX_SAMPLES="$INFER_MAX_SAMPLES" OVERWRITE="$OVERWRITE" \
     SEED="$SEED" RUN_INFER="$RUN_INFER" RUN_EVAL="$RUN_EVAL" \
-    RUN_REGION_EVAL="$RUN_REGION_EVAL" RUN_ARCHIVE="$RUN_ARCHIVE" \
+    RUN_REGION_EVAL="$EFFECTIVE_RUN_REGION_EVAL" RUN_ARCHIVE="$RUN_ARCHIVE" \
     bash "$ROOT/run_rediffuse_real_v1.sh"
 }
 
@@ -160,16 +170,26 @@ run_method() {
     OVERWRITE="$OVERWRITE" SEED="$SEED" PYTHON="$PYTHON" EVAL_SPECS="$spec" \
     EVAL_EXTRA_ARGS="$EVAL_EXTRA_ARGS" IFCNN_CKPT="${IFCNN_CKPT:-$ROOT/baselines/IFCNN/Code/snapshots/IFCNN-MAX.pth}" \
     SWINFUSION_CKPT="${SWINFUSION_CKPT:-}" SWINFUSION_CHECKPOINT_MODE=metadata-y \
-    ZMFF_ITERATIONS="$ZMFF_ITERATIONS" bash "$ROOT/scripts/pipelines/$method.sh"; then
+    ZMFF_ITERATIONS="$ZMFF_ITERATIONS" ZMFF_MAX_SIDE="$ZMFF_MAX_SIDE" \
+    bash "$ROOT/scripts/pipelines/$method.sh"; then
     echo "[FAILED] $method inference/full-image evaluation" >&2
     return 1
   fi
-  if [[ "$RUN_REGION_EVAL" == 1 ]]; then
+  if [[ "$EFFECTIVE_RUN_REGION_EVAL" == 1 ]]; then
     local region_root="$OUTPUT_ROOT/region_eval"
     local region_manifest="$region_root/manifests/$REGION_DATASET/$method_label/region_manifest_route_v3.csv"
     local region_metrics="$region_root/metrics/$REGION_DATASET/$method_label"
+    if ! "$PYTHON" "$ROOT/tools/prepare_route_v3_metadata.py" \
+      --metadata "$VAL_META" --inference-manifest "$OUTPUT_ROOT/infer/$out_subdir/inference_manifest.csv" \
+      --suite "$ROUTE_SUITE" --converter "$ROOT/route3/make_routes_from_focus_ab.py" \
+      --output-dir "$region_root/routes/$REGION_DATASET/$method_label" \
+      --output-metadata "$region_root/routes/$REGION_DATASET/$method_label/metadata_route_v3.json"; then
+      echo "[FAILED] $method route3 map generation" >&2
+      return 1
+    fi
+    REGION_META="$region_root/routes/$REGION_DATASET/$method_label/metadata_route_v3.json"
     if ! "$PYTHON" "$ROOT/tools/build_region_manifest.py" \
-      --metadata "$VAL_META" \
+      --metadata "$REGION_META" \
       --inference-manifest "$OUTPUT_ROOT/infer/$out_subdir/inference_manifest.csv" \
       --output "$region_manifest" --dataset "$REGION_DATASET" --method "$method_label" \
       --route-sum-tolerance 0.05; then
@@ -271,7 +291,7 @@ if [[ "$RUN_ARCHIVE" == 1 ]]; then
       archive_args=(--output-root "$OUTPUT_ROOT" --archive-root "$ARCHIVE_ROOT"
                     --tag "$TAG" --dataset RealMFIFZeddV4 --methods "$archive_method"
                     --region-dataset "$REGION_DATASET")
-      [[ "$RUN_REGION_EVAL" != 1 ]] || archive_args+=(--require-region)
+      [[ "$EFFECTIVE_RUN_REGION_EVAL" != 1 ]] || archive_args+=(--require-region)
       if "$PYTHON" "$ROOT/tools/archive_real_scene_results.py" "${archive_args[@]}"; then
         touch "$STATUS_DIR/archive_${archive_method}.ok"
       else
@@ -290,6 +310,26 @@ if [[ "$RUN_REDIFFUSE" == 1 && "$RUN_INFER" == 1 && -z "$rediffuse_pid" ]]; then
   fi
 elif [[ -n "$rediffuse_pid" ]]; then
   wait "$rediffuse_pid" || true
+fi
+
+# Flux2 deliberately runs last because its environment and memory footprint are
+# independent of the other baselines. Its external pipeline must implement the
+# same train/infer/eval/archive contract through these environment variables.
+if [[ "$RUN_FLUX2" == 1 ]]; then
+  if [[ -z "$FLUX2_PIPELINE" || ! -f "$FLUX2_PIPELINE" ]]; then
+    touch "$STATUS_DIR/flux2.failed"
+    echo "[FAILED] Flux2 pipeline missing; set FLUX2_PIPELINE=/absolute/path/to/script.sh" >&2
+  elif CUDA_VISIBLE_GPU="$FLUX2_GPU" TRAIN_META="$TRAIN_META" VAL_META="$VAL_META" \
+      OUTPUT_ROOT="$OUTPUT_ROOT" ARCHIVE_ROOT="$ARCHIVE_ROOT" RUN_TRAIN="$RUN_TRAIN" \
+      RUN_INFER="$RUN_INFER" RUN_EVAL="$RUN_EVAL" RUN_REGION_EVAL="$RUN_REGION_EVAL" \
+      MAX_TRAIN_STEPS="$MAX_TRAIN_STEPS" MAX_SAMPLES="$INFER_MAX_SAMPLES" SMOKE="$SMOKE" \
+      FLUX2_GPU="$FLUX2_GPU" FLUX2_GPUS="$GPUS" EVAL_PYTHON="$REGION_PYTHON" \
+      bash "$FLUX2_PIPELINE" 2>&1 | tee "$OUTPUT_ROOT/logs/flux2_train_infer_eval.log"; then
+    touch "$STATUS_DIR/flux2.ok"
+  else
+    touch "$STATUS_DIR/flux2.failed"
+    echo '[FAILED] Flux2 final task' >&2
+  fi
 fi
 
 failed_files=("$STATUS_DIR"/*.failed)
