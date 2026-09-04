@@ -1,384 +1,3005 @@
-(p312) root@focus03324-20260331164654657-worker-0:/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1# cd /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1
+import os
 
-SMOKE=1 \
-GPUS=0,1,2,3 \
-TRAIN_GPU=0 \
-REDIFFUSE_GPU=3 \
-bash run_mix_v1_all.sh
-[SMOKE] 2 SwinFusion steps, 1 inference/evaluation sample per method, temporary archive
-[PREFLIGHT] checking training metadata
-{
-  "metadata": "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json",
-  "total_rows": 5000,
-  "samples_checked": 4,
-  "with_gt": 4,
-  "source_datasets": {
-    "RealMFF": 2,
-    "unspecified": 1,
-    "5K": 1
-  },
-  "width_range": [
-    625,
-    4104
-  ],
-  "height_range": [
-    433,
-    2736
-  ],
-  "duplicate_sample_ids": 0,
-  "errors": [],
-  "error_count": 0
-}
-[PREFLIGHT] checking validation metadata
-{
-  "metadata": "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json",
-  "total_rows": 68,
-  "samples_checked": 1,
-  "with_gt": 1,
-  "source_datasets": {
-    "unspecified": 1
-  },
-  "width_range": [
-    4104,
-    4104
-  ],
-  "height_range": [
-    2736,
-    2736
-  ],
-  "duplicate_sample_ids": 0,
-  "errors": [],
-  "error_count": 0
-}
-[CONFIG] smoke=1 project_root=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1 GPUs=0,1,2,3 main_gpus=0,1,2 train_gpu=0 rediffuse=1 rediffuse_gpu=3
-[CONFIG] train=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json val=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json val_mode=gt output=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749
-[LAUNCH] ReDiffuse_ORIGIN dedicated physical GPU 3
-[LAUNCH] SwinFusion training on physical GPU 0
-[JOB] method=zmff physical_gpu=2
-[JOB] method=ifcnn physical_gpu=1
-[CONFIG] ReDiffuse_ORIGIN gpu=3 infer_python=/root/miniconda3/envs/rediffuse38_0806/bin/python eval_python=/root/miniconda3/envs/p312/bin/python
-[CONFIG] metadata=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json output=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749 archive=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/smoke_archive/RealSceneVal68
-[CONFIG] METHOD=swinfusion TRAIN_META=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json VAL_META=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json OUTPUT_ROOT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train TAG=swinfusion_mix_v1_y GPUS=0 WORKERS=0 SEED=17 INIT_MODE=scratch VALIDATION_MODE=loss CROP=128 BATCH=1
-[GPU] CUDA_VISIBLE_DEVICES=2 (Python device cuda:0)
-[GPU] CUDA_VISIBLE_DEVICES=1 (Python device cuda:0)
-[GPU] CUDA_VISIBLE_DEVICES=3 (Python device cuda:0)
-[RUN] method=rediffuse checkpoint=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/weights/model.pt checkpoint_mode=official-y seed=17 metadata=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json output_dir=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/infer/ReDiffuse-official-y device=cuda:0 sampling_steps=2000
-[B_CONV] source=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/Condition_Noise_Predictor/__pycache__/B_Conv.cpython-38.pyc
-[B_CONV] runtime=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/Condition_Noise_Predictor/B_Conv.pyc
-[B_CONV] sha256=62fb37e52d4c4638daed9e6b5e4bf7d5cc3f337811159b17b9246ff8d67d5fa1
-[B_CONV] python=3.8.10 (default, Jun  4 2021, 15:09:15)
-[GCC 7.5.0]
-[B_CONV] magic=550d0d0a
-[B_CONV] imported=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/Condition_Noise_Predictor/B_Conv.pyc
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/IFCNN/infer_metadata.py:51: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
-  state = torch.load(str(ckpt), map_location=device)
-Traceback (most recent call last):
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ZMFF/infer_metadata.py", line 15, in <module>
-    from network.loss import Loss
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ZMFF/network/loss.py", line 10, in <module>
-    from skimage.measure import compare_psnr, compare_ssim
-ImportError: cannot import name 'compare_psnr' from 'skimage.measure' (/root/miniconda3/envs/p312/lib/python3.12/site-packages/skimage/measure/__init__.py)
-[FAILED] zmff inference/full-image evaluation
-[FAILED] zmff; next task on this GPU continues
-26-09-04 03:08:19.434 :   task: Multi_Focus_Fusion
-  model: plain
-  gpu_ids: [0]
-  dist: False
-  scale: 1
-  n_channels: 1
-  path:[
-    root: Model/Multi_Focus_Fusion
-    pretrained_netG: None
-    pretrained_netE: None
-    task: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y
-    log: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/logs
-    options: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y
-    models: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/checkpoints
-    images: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/validation
-    tensorboard: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/logs/tensorboard
-    pretrained_optimizerG: None
-  ]
-  datasets:[
-    train:[
-      name: train_dataset
-      dataset_type: metadata_mff
-      dataroot_A: Dataset/trainsets/MFI-WHU/A_Y
-      dataroot_B: Dataset/trainsets/MFI-WHU/B_Y
-      H_size: 128
-      dataloader_shuffle: True
-      dataloader_num_workers: 0
-      dataloader_batch_size: 1
-      phase: train
-      scale: 1
-      n_channels: 1
-      metadata: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json
-      start_index: 0
-      max_samples: 4
-    ]
-    test:[
-      name: test_dataset
-      dataset_type: metadata_mff
-      dataroot_A: Dataset/valsets/Lytro/A_Y
-      dataroot_B: Dataset/valsets/Lytro/B_Y
-      phase: test
-      scale: 1
-      n_channels: 1
-      metadata: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json
-      max_samples: 4
-    ]
-  ]
-  netG:[
-    net_type: swinfusion1
-    upscale: 1
-    in_chans: 1
-    img_size: 128
-    window_size: 8
-    img_range: 1.0
-    depths: [6, 6, 6, 6]
-    embed_dim: 60
-    num_heads: [6, 6, 6, 6]
-    mlp_ratio: 2
-    upsampler: None
-    resi_connection: 1conv
-    init_type: default
-    scale: 1
-  ]
-  train:[
-    G_lossfn_type: mff
-    G_lossfn_weight: 1.0
-    E_decay: 0.999
-    G_optimizer_type: adam
-    G_optimizer_lr: 0.0002
-    G_optimizer_wd: 0
-    G_optimizer_clipgrad: None
-    G_optimizer_reuse: True
-    G_scheduler_type: MultiStepLR
-    G_scheduler_milestones: [250000, 400000, 450000, 475000, 500000]
-    G_scheduler_gamma: 0.5
-    G_regularizer_orthstep: None
-    G_regularizer_clipstep: None
-    G_param_strict: True
-    E_param_strict: True
-    checkpoint_test: 1000
-    checkpoint_save: 1000
-    checkpoint_print: 200
-    F_feature_layer: 34
-    F_weights: 1.0
-    F_lossfn_type: l1
-    F_use_input_norm: True
-    F_use_range_norm: False
-  ]
-  opt_path: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/SwinFusion/options/swinir/train_swinfusion_mff.json
-  is_train: True
-  merge_bn: False
-  merge_bn_startpoint: -1
-  find_unused_parameters: True
-  num_gpu: 1
-  rank: 0
-  world_size: 1
 
-26-09-04 03:08:20.773 : Number of train images: 4, iters: 4
-[DONE] failed=0
-[DONE] /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/IFCNN/manifests/RealMFIFZeddV4_IFCNN.csv rows=1
-usage: evaluate.py [-h] [--manifest MANIFEST] [--metrics METRICS]
-                   [--datasets DATASETS] [--methods METHODS]
-                   [--mode {all,gt,no_gt}] [--output-dir OUTPUT_DIR]
-                   [--tpami-root TPAMI_ROOT] [--objective-root OBJECTIVE_ROOT]
-                   [--matlab-command MATLAB_COMMAND]
-                   [--qcnn-device QCNN_DEVICE]
-                   [--lpips-net {alex,vgg,squeeze}] [--source-metrics-on-gt]
-                   [--fail-fast] [--list-metrics]
-evaluate.py: error: unrecognized arguments:  --source-metrics-on-gt
-[FAILED] ifcnn inference/full-image evaluation
-[FAILED] ifcnn; next task on this GPU continues
-[JOB] method=dsift physical_gpu=1
-[GPU] CUDA_VISIBLE_DEVICES=1 (Python device cuda:0)
-[GPU] CUDA_VISIBLE_DEVICES=0
-[GPU] logical_gpu_ids=[0]
-[GPU] num_gpu=1
-[INIT] mode=scratch G= E= optimizer=
-Model/Multi_Focus_Fusion
-None
-None
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/logs
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/checkpoints
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/validation
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/logs/tensorboard
-None
-LogHandlers setup!
-Random seed: 17
-Dataset [DatasetMetadataMFF - train_dataset] is created.
-Dataset [DatasetMetadataMFF - test_dataset] is created.
-train metadata: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mfif_train_mix_v1/metadata_train_mix_v1_balanced.json
-train samples: 4
-train[0] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/RealMFF/imageA/671_A.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/RealMFF/imageB/671_B.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/RealMFF/Fusion/671_F.png
-train[1] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/002643_s01_a4835-Duggan_090426_7891_7d7c271c_3da28058/a_squarecrop.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/002643_s01_a4835-Duggan_090426_7891_7d7c271c_3da28058/b_aligned_squarecrop.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/002643_s01_a4835-Duggan_090426_7891_7d7c271c_3da28058/target_squarecrop.png
-train[2] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/003083_s02_LFDOF_IMG_5757_882ae4cb_d7af150b/a_squarecrop.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/003083_s02_LFDOF_IMG_5757_882ae4cb_d7af150b/b_aligned_squarecrop.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/commonblur_geometry_train4000_val200_512_0804_v1/train/squarecrop_geometry_0806/003083_s02_LFDOF_IMG_5757_882ae4cb_d7af150b/target_squarecrop.png
-train duplicate sample_id: False
-val metadata: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json
-val samples: 4
-val[0] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/zedd/val_0028/img_run_1_motor_6D3E_aperture_F1.4.jpg B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/processed/val/aligned_b/zedd_val_0028_f1.4_Ar01_Br09_extreme_b_aligned_to_a.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/zedd/val_0028/img_run_1_motor_6D3E_aperture_F16.0.jpg
-val[1] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/selfshot/202605141441480_fn0/202605141441480_4080x3072_fn0_in_0.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/processed/val/aligned_b/self_202605141441480_fn0_Ain00_Bin04_mild_b_aligned_to_a.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/selfshot/202605141441480_fn0/202605141441480_shot_allinFocus_4080x3072_fn0_reqId951_out_0.png
-val[2] A=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/selfshot/202605141439180_fn0/202605141439180_4080x3072_fn0_in_0.png B=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/processed/val/aligned_b/self_202605141439180_fn0_Ain00_Bin01_hard_b_aligned_to_a.png GT=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/images/val/selfshot/202605141439180_fn0/202605141439180_shot_allinFocus_4080x3072_fn0_reqId871_out_0.png
-val duplicate sample_id: False
-in_chans:  1
-Pass this initialization! Initialization was done during network defination!
-in_chans:  1
-Pass this initialization! Initialization was done during network defination!
-Training model [ModelPlain] is created.
-Copying model for E ...
-final checkpoint saved at step 2
-one-batch metadata validation: PASS
-[JOB] method=swinfusion physical_gpu=0
-[GPU] CUDA_VISIBLE_DEVICES=0 (Python device cuda:0)
-[RUN] method=swinfusion checkpoint=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/train/SwinFusion/swinfusion_mix_v1_y/checkpoints/2_E.pth checkpoint_mode=metadata-y seed=17 metadata=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/real_mfif_zedd_selfshot_v4_0901/metadata_val_final.json output_dir=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/infer/SwinFusion-metadata-y device=cuda:0
-/root/miniconda3/envs/p312/lib/python3.12/site-packages/torch/functional.py:534: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /opt/conda/conda-bld/pytorch_1728945388038/work/aten/src/ATen/native/TensorShape.cpp:3595.)
-  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/SwinFusion/infer_metadata.py:44: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
-  state = torch.load(str(ckpt), map_location=device); model.load_state_dict(state.get("params", state), strict=True); model.to(device).eval()
-in_chans:  1
-[DONE] failed=0
-[DONE] /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/SwinFusion/swinfusion_mix_v1_y/manifests/RealMFIFZeddV4_SwinFusion.csv rows=1
-usage: evaluate.py [-h] [--manifest MANIFEST] [--metrics METRICS]
-                   [--datasets DATASETS] [--methods METHODS]
-                   [--mode {all,gt,no_gt}] [--output-dir OUTPUT_DIR]
-                   [--tpami-root TPAMI_ROOT] [--objective-root OBJECTIVE_ROOT]
-                   [--matlab-command MATLAB_COMMAND]
-                   [--qcnn-device QCNN_DEVICE]
-                   [--lpips-net {alex,vgg,squeeze}] [--source-metrics-on-gt]
-                   [--fail-fast] [--list-metrics]
-evaluate.py: error: unrecognized arguments:  --source-metrics-on-gt
-[FAILED] swinfusion inference/full-image evaluation
-[FAILED] swinfusion; next task on this GPU continues
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/DSIFT-MFIF/dsift_mfif.py:139: FutureWarning: Parameter `min_size` is deprecated since version 0.26.0 and will be removed in 2.0.0 (or later). To avoid this warning, please use the parameter `max_size` instead. For more details, see the documentation of `remove_small_objects`. Note that the new threshold removes objects smaller than **or equal to** its value, while the previous parameter only removed smaller ones.
-  temp1 = remove_small_objects(init1, min_size=area, connectivity=2)
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/DSIFT-MFIF/dsift_mfif.py:140: FutureWarning: Parameter `min_size` is deprecated since version 0.26.0 and will be removed in 2.0.0 (or later). To avoid this warning, please use the parameter `max_size` instead. For more details, see the documentation of `remove_small_objects`. Note that the new threshold removes objects smaller than **or equal to** its value, while the previous parameter only removed smaller ones.
-  temp2 = remove_small_objects(init2, min_size=area, connectivity=2)
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/DSIFT-MFIF/dsift_mfif.py:141: FutureWarning: Parameter `min_size` is deprecated since version 0.26.0 and will be removed in 2.0.0 (or later). To avoid this warning, please use the parameter `max_size` instead. For more details, see the documentation of `remove_small_objects`. Note that the new threshold removes objects smaller than **or equal to** its value, while the previous parameter only removed smaller ones.
-  init1 = ~remove_small_objects(~temp1, min_size=area, connectivity=2)
-/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/DSIFT-MFIF/dsift_mfif.py:142: FutureWarning: Parameter `min_size` is deprecated since version 0.26.0 and will be removed in 2.0.0 (or later). To avoid this warning, please use the parameter `max_size` instead. For more details, see the documentation of `remove_small_objects`. Note that the new threshold removes objects smaller than **or equal to** its value, while the previous parameter only removed smaller ones.
-  init2 = ~remove_small_objects(~temp2, min_size=area, connectivity=2)
-[DONE] rows=1 success=1
-[DONE] failed=0
-[DONE] /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/DSIFT/manifests/RealMFIFZeddV4_DSIFT.csv rows=1
-usage: evaluate.py [-h] [--manifest MANIFEST] [--metrics METRICS]
-                   [--datasets DATASETS] [--methods METHODS]
-                   [--mode {all,gt,no_gt}] [--output-dir OUTPUT_DIR]
-                   [--tpami-root TPAMI_ROOT] [--objective-root OBJECTIVE_ROOT]
-                   [--matlab-command MATLAB_COMMAND]
-                   [--qcnn-device QCNN_DEVICE]
-                   [--lpips-net {alex,vgg,squeeze}] [--source-metrics-on-gt]
-                   [--fail-fast] [--list-metrics]
-evaluate.py: error: unrecognized arguments:  --source-metrics-on-gt
-[FAILED] dsift inference/full-image evaluation
-[FAILED] dsift; next task on this GPU continues
-[ARCHIVE] target=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/smoke_archive/RealSceneVal68
-Traceback (most recent call last):
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 195, in <module>
-    raise SystemExit(main())
-                     ^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 183, in main
-    counts = publish(
-             ^^^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 138, in publish
-    counts[method], _ = stage_method(
-                        ^^^^^^^^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 94, in stage_method
-    copy_file(result_dir / name, metrics / name)
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 45, in copy_file
-    raise FileNotFoundError(f"required file missing: {source}")
-FileNotFoundError: required file missing: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/SwinFusion/swinfusion_mix_v1_y/results/RealMFIFZeddV4/per_image.csv
-[FAILED] SwinFusion archive; remaining archives continue
-Traceback (most recent call last):
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 195, in <module>
-    raise SystemExit(main())
-                     ^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 183, in main
-    counts = publish(
-             ^^^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 138, in publish
-    counts[method], _ = stage_method(
-                        ^^^^^^^^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 94, in stage_method
-    copy_file(result_dir / name, metrics / name)
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 45, in copy_file
-    raise FileNotFoundError(f"required file missing: {source}")
-FileNotFoundError: required file missing: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/IFCNN/results/RealMFIFZeddV4/per_image.csv
-[FAILED] IFCNN archive; remaining archives continue
-Traceback (most recent call last):
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 195, in <module>
-    raise SystemExit(main())
-                     ^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 183, in main
-    counts = publish(
-             ^^^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 138, in publish
-    counts[method], _ = stage_method(
-                        ^^^^^^^^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 58, in stage_method
-    rows = read_csv(infer_manifest)
-           ^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 38, in read_csv
-    raise FileNotFoundError(f"required file missing: {path}")
-FileNotFoundError: required file missing: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/infer/ZMFF/inference_manifest.csv
-[FAILED] ZMFF archive; remaining archives continue
-Traceback (most recent call last):
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 195, in <module>
-    raise SystemExit(main())
-                     ^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 183, in main
-    counts = publish(
-             ^^^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 138, in publish
-    counts[method], _ = stage_method(
-                        ^^^^^^^^^^^^^
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 94, in stage_method
-    copy_file(result_dir / name, metrics / name)
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/tools/archive_real_scene_results.py", line 45, in copy_file
-    raise FileNotFoundError(f"required file missing: {source}")
-FileNotFoundError: required file missing: /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749/eval/DSIFT/results/RealMFIFZeddV4/per_image.csv
-[FAILED] DSIFT archive; remaining archives continue
-[REDIFFUSE] checkpoint_mode=official-y
-[REDIFFUSE] checkpoint=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/weights/model.pt
-[REDIFFUSE] python=/root/miniconda3/envs/rediffuse38_0806/bin/python
-[REDIFFUSE] color_space=Y
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1900/2000    [time] 20260904_030947
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1800/2000    [time] 20260904_031117
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1700/2000    [time] 20260904_031246
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1600/2000    [time] 20260904_031415
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1500/2000    [time] 20260904_031543
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1400/2000    [time] 20260904_031712
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1300/2000    [time] 20260904_031841
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1200/2000    [time] 20260904_032009
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1100/2000    [time] 20260904_032138
-[valid step] 1/1    [generate step] 1/1    [reverse process] 1000/2000    [time] 20260904_032306
-[valid step] 1/1    [generate step] 1/1    [reverse process] 900/2000    [time] 20260904_032435
-[valid step] 1/1    [generate step] 1/1    [reverse process] 800/2000    [time] 20260904_032603
-[valid step] 1/1    [generate step] 1/1    [reverse process] 700/2000    [time] 20260904_032732
-[valid step] 1/1    [generate step] 1/1    [reverse process] 600/2000    [time] 20260904_032900
-[valid step] 1/1    [generate step] 1/1    [reverse process] 500/2000    [time] 20260904_033029
-[valid step] 1/1    [generate step] 1/1    [reverse process] 400/2000    [time] 20260904_033158
-[valid step] 1/1    [generate step] 1/1    [reverse process] 300/2000    [time] 20260904_033326
-[valid step] 1/1    [generate step] 1/1    [reverse process] 200/2000    [time] 20260904_033455
-[valid step] 1/1    [generate step] 1/1    [reverse process] 100/2000    [time] 20260904_033623
-[valid step] 1/1    [generate step] 1/1    [reverse process] 0/2000    [time] 20260904_033752
-Traceback (most recent call last):
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/infer_metadata.py", line 101, in <module>
-    if __name__=='__main__': main()
-  File "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/baselines/ReDiffuse/infer_metadata.py", line 99, in main
-    write_run_files(out,records,vars(args)|{'metadata':str(meta),'checkpoint_loaded':str(ckpt.resolve()),'actual_sampling_steps':trained_steps})
-TypeError: unsupported operand type(s) for |: 'dict' and 'dict'
-[FAILED] ReDiffuse_ORIGIN; other tasks continue
-[DONE WITH FAILURES] outputs=/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1/outputs/smoke_20260904_030749
-  - archive_DSIFT
-  - archive_IFCNN
-  - archive_SwinFusion
-  - archive_ZMFF
-  - dsift
-  - ifcnn
-  - rediffuse
-  - swinfusion
-  - zmff
-(p312) root@focus03324-20260331164654657-worker-0:/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/focus_exp-fix-python-only-metrics-dsift-v1# ^C
+
+os.environ["HF\_ENDPOINT"] = "[https://hf-mirror.com](https://hf-mirror.com)"
+
+
+
+os.environ["HF\_HOME"] = "/data/vjuicefs\_ai\_camera\_3drg\_ql/public\_data/11193880/HF"
+
+
+
+import json
+
+
+
+import math
+
+
+
+import argparse
+
+
+
+
+
+
+
+import torch
+
+
+
+import accelerate
+
+
+
+import torchvision.transforms.functional as TF
+
+
+
+from torchvision.transforms import InterpolationMode
+
+
+
+from PIL import Image
+
+
+
+from torch.utils.data import Dataset
+
+
+
+
+
+
+
+from diffsynth.pipelines.flux2\_image import Flux2ImagePipeline, ModelConfig
+
+
+
+from diffsynth.diffusion import \*
+
+
+
+
+
+
+
+os.environ["TOKENIZERS\_PARALLELISM"] = "false"
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def resize\_keep\_aspect\_no\_crop(image, max\_pixels=None, height=None, width=None, div=16):
+
+
+
+    w, h = image.size
+
+
+
+
+
+
+
+    if height is not None and width is not None:
+
+
+
+        scale = min(width / w, height / h)
+
+
+
+        new\_w = max(1, int(w \* scale))
+
+
+
+        new\_h = max(1, int(h \* scale))
+
+
+
+    else:
+
+
+
+        new\_w, new\_h = w, h
+
+
+
+        if max\_pixels is not None and w \* h > max\_pixels:
+
+
+
+            scale = math.sqrt(max\_pixels / float(w \* h))
+
+
+
+            new\_w = max(1, int(w \* scale))
+
+
+
+            new\_h = max(1, int(h \* scale))
+
+
+
+
+
+
+
+    new\_w = max(div, (new\_w // div) \* div)
+
+
+
+    new\_h = max(div, (new\_h // div) \* div)
+
+
+
+
+
+
+
+    image = TF.resize(
+
+
+
+        image,
+
+
+
+        (new\_h, new\_w),
+
+
+
+        interpolation=InterpolationMode.BILINEAR
+
+
+
+    )
+
+
+
+    return image
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class FocusFusionDataset(Dataset):
+
+
+
+    def \_\_init\_\_(
+
+
+
+        self,
+
+
+
+        base\_path,
+
+
+
+        metadata\_path,
+
+
+
+        repeat=1,
+
+
+
+        max\_pixels=None,
+
+
+
+        height=None,
+
+
+
+        width=None,
+
+
+
+        div=16,
+
+
+
+        max\_data\_items=None,
+
+
+
+    ):
+
+
+
+        self.base\_path = base\_path
+
+
+
+        self.metadata\_path = metadata\_path
+
+
+
+        self.repeat = repeat
+
+
+
+        self.max\_pixels = max\_pixels
+
+
+
+        self.height = height
+
+
+
+        self.width = width
+
+
+
+        self.div = div
+
+
+
+        self.max\_data\_items = max\_data\_items
+
+
+
+
+
+
+
+        \# 兼容 diffsynth runner
+
+
+
+        self.load\_from\_cache = False
+
+
+
+        self.cached\_data = []
+
+
+
+
+
+
+
+        with open(metadata\_path, "r", encoding="utf-8") as f:
+
+
+
+            self.data = json.load(f)
+
+
+
+
+
+
+
+        if self.max\_data\_items is not None:
+
+
+
+            self.data = self.data[:self.max\_data\_items]
+
+
+
+
+
+
+
+    def \_abs\_path(self, rel\_path):
+
+
+
+        return os.path.join(self.base\_path, rel\_path)
+
+
+
+
+
+
+
+    def \_load\_rgb(self, rel\_path):
+
+
+
+        path = self.\_abs\_path(rel\_path)
+
+
+
+        img = Image.open(path).convert("RGB")
+
+
+
+        return img
+
+
+
+
+
+
+
+    def \_\_getitem\_\_(self, idx):
+
+
+
+        item = self.data[idx % len(self.data)]
+
+
+
+
+
+
+
+        target = self.\_load\_rgb(item["image"])
+
+
+
+        edit\_a = self.\_load\_rgb(item["edit\_image"][0])
+
+
+
+        edit\_b = self.\_load\_rgb(item["edit\_image"][1])
+
+
+
+
+
+
+
+        \# 用 target 的结果统一三张图尺寸
+
+
+
+        target = resize\_keep\_aspect\_no\_crop(
+
+
+
+            target,
+
+
+
+            max\_pixels=self.max\_pixels,
+
+
+
+            height=self.height,
+
+
+
+            width=self.width,
+
+
+
+            div=self.div,
+
+
+
+        )
+
+
+
+
+
+
+
+        tw, th = target.size
+
+
+
+
+
+
+
+        edit\_a = TF.resize(
+
+
+
+            edit\_a,
+
+
+
+            (th, tw),
+
+
+
+            interpolation=InterpolationMode.BILINEAR
+
+
+
+        )
+
+
+
+        edit\_b = TF.resize(
+
+
+
+            edit\_b,
+
+
+
+            (th, tw),
+
+
+
+            interpolation=InterpolationMode.BILINEAR
+
+
+
+        )
+
+
+
+
+
+
+
+        return {
+
+
+
+            "image": target,
+
+
+
+            "edit\_image": [edit\_a, edit\_b],
+
+
+
+            "prompt": item["prompt"],
+
+
+
+        }
+
+
+
+
+
+
+
+    def \_\_len\_\_(self):
+
+
+
+        return len(self.data) \* self.repeat
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import torch.nn.functional as F
+
+
+
+from einops import rearrange
+
+
+
+
+
+
+
+def FlowMatchSFTPixelL1Loss(
+
+
+
+    pipe,
+
+
+
+    pixel\_loss\_weight=0.05,
+
+
+
+    \*\*inputs,
+
+
+
+):
+
+
+
+    max\_timestep\_boundary = int(inputs.get("max\_timestep\_boundary", 1) \* len(pipe.scheduler.timesteps))
+
+
+
+    min\_timestep\_boundary = int(inputs.get("min\_timestep\_boundary", 0) \* len(pipe.scheduler.timesteps))
+
+
+
+
+
+
+
+    timestep\_id = torch.randint(min\_timestep\_boundary, max\_timestep\_boundary, (1,))
+
+
+
+    timestep = pipe.scheduler.timesteps[timestep\_id].to(
+
+
+
+        dtype=pipe.torch\_dtype,
+
+
+
+        device=pipe.device,
+
+
+
+    )
+
+
+
+
+
+
+
+    noise = torch.randn\_like(inputs["input\_latents"])
+
+
+
+    inputs["latents"] = pipe.scheduler.add\_noise(
+
+
+
+        inputs["input\_latents"],
+
+
+
+        noise,
+
+
+
+        timestep,
+
+
+
+    )
+
+
+
+
+
+
+
+    training\_target = pipe.scheduler.training\_target(
+
+
+
+        inputs["input\_latents"],
+
+
+
+        noise,
+
+
+
+        timestep,
+
+
+
+    )
+
+
+
+
+
+
+
+    models = {name: getattr(pipe, name) for name in pipe.in\_iteration\_models}
+
+
+
+
+
+
+
+    velocity\_pred = pipe.model\_fn(
+
+
+
+        \*\*models,
+
+
+
+        \*\*inputs,
+
+
+
+        timestep=timestep,
+
+
+
+    )
+
+
+
+
+
+
+
+    \# ===== FlowMatch loss =====
+
+
+
+    flow\_loss = F.mse\_loss(
+
+
+
+        velocity\_pred.float(),
+
+
+
+        training\_target.float(),
+
+
+
+    )
+
+
+
+    flow\_loss = flow\_loss \* pipe.scheduler.training\_weight(timestep)
+
+
+
+
+
+
+
+    \# ===== Pixel L1 loss =====
+
+
+
+    sigma = pipe.scheduler.sigmas[timestep\_id].to(
+
+
+
+        dtype=velocity\_pred.dtype,
+
+
+
+        device=velocity\_pred.device,
+
+
+
+    )
+
+
+
+    sigma = sigma.reshape(1, 1, 1)
+
+
+
+
+
+
+
+    clean\_latents\_pred = inputs["latents"] - sigma \* velocity\_pred
+
+
+
+
+
+
+
+    height = int(inputs["height"])
+
+
+
+    width = int(inputs["width"])
+
+
+
+    latent\_h, latent\_w = height // 16, width // 16
+
+
+
+
+
+
+
+    clean\_latents\_pred = rearrange(
+
+
+
+        clean\_latents\_pred,
+
+
+
+        "B (H W) C -> B C H W",
+
+
+
+        H=latent\_h,
+
+
+
+        W=latent\_w,
+
+
+
+    )
+
+
+
+
+
+
+
+    pred\_image = pipe.vae.decode(clean\_latents\_pred).clamp(-1, 1)
+
+
+
+
+
+
+
+    \# target image（用 input\_image 即 GT）
+
+
+
+    target\_image = pipe.preprocess\_image(
+
+
+
+        inputs["input\_image"],
+
+
+
+        torch\_dtype=pipe.torch\_dtype,
+
+
+
+        device=pipe.device,
+
+
+
+    )
+
+
+
+
+
+
+
+    if target\_image.shape[-2:] != pred\_image.shape[-2:]:
+
+
+
+        target\_image = F.interpolate(
+
+
+
+            target\_image,
+
+
+
+            size=pred\_image.shape[-2:],
+
+
+
+            mode="bilinear",
+
+
+
+            align\_corners=False,
+
+
+
+        )
+
+
+
+
+
+
+
+    pixel\_l1 = F.l1\_loss(
+
+
+
+        pred\_image.float(),
+
+
+
+        target\_image.float(),
+
+
+
+    )
+
+
+
+
+
+
+
+    return flow\_loss + pixel\_loss\_weight \* pixel\_l1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class Flux2ImageTrainingModule(DiffusionTrainingModule):
+
+
+
+    def \_\_init\_\_(
+
+
+
+        self,
+
+
+
+        model\_paths=None, model\_id\_with\_origin\_paths=None,
+
+
+
+        tokenizer\_path=None,
+
+
+
+        trainable\_models=None,
+
+
+
+        lora\_base\_model=None, lora\_target\_modules="", lora\_rank=32, lora\_checkpoint=None,
+
+
+
+        preset\_lora\_path=None, preset\_lora\_model=None,
+
+
+
+        use\_gradient\_checkpointing=True,
+
+
+
+        use\_gradient\_checkpointing\_offload=False,
+
+
+
+        extra\_inputs=None,
+
+
+
+        fp8\_models=None,
+
+
+
+        offload\_models=None,
+
+
+
+        device="cpu",
+
+
+
+        task="sft",
+
+
+
+    ):
+
+
+
+        super().\_\_init\_\_()
+
+
+
+
+
+
+
+        model\_configs = self.parse\_model\_configs(
+
+
+
+            model\_paths,
+
+
+
+            model\_id\_with\_origin\_paths,
+
+
+
+            fp8\_models=fp8\_models,
+
+
+
+            offload\_models=offload\_models,
+
+
+
+            device=device
+
+
+
+        )
+
+
+
+
+
+
+
+        tokenizer\_config = self.parse\_path\_or\_model\_id(
+
+
+
+            tokenizer\_path,
+
+
+
+            default\_value=ModelConfig(
+
+
+
+                model\_id="black-forest-labs/FLUX.2-klein-base-4B",
+
+
+
+                origin\_file\_pattern="tokenizer/"
+
+
+
+            )
+
+
+
+        )
+
+
+
+
+
+
+
+        self.pipe = Flux2ImagePipeline.from\_pretrained(
+
+
+
+            torch\_dtype=torch.bfloat16,
+
+
+
+            device=device,
+
+
+
+            model\_configs=model\_configs,
+
+
+
+            tokenizer\_config=tokenizer\_config
+
+
+
+        )
+
+
+
+        self.pipe = self.split\_pipeline\_units(task, self.pipe, trainable\_models, lora\_base\_model)
+
+
+
+
+
+
+
+        self.switch\_pipe\_to\_training\_mode(
+
+
+
+            self.pipe, trainable\_models,
+
+
+
+            lora\_base\_model, lora\_target\_modules, lora\_rank, lora\_checkpoint,
+
+
+
+            preset\_lora\_path, preset\_lora\_model,
+
+
+
+            task=task,
+
+
+
+        )
+
+
+
+
+
+
+
+        self.use\_gradient\_checkpointing = use\_gradient\_checkpointing
+
+
+
+        self.use\_gradient\_checkpointing\_offload = use\_gradient\_checkpointing\_offload
+
+
+
+        self.extra\_inputs = extra\_inputs.split(",") if extra\_inputs is not None else []
+
+
+
+        self.fp8\_models = fp8\_models
+
+
+
+        self.task = task
+
+
+
+
+
+
+
+        self.task\_to\_loss = {
+
+
+
+            "sft\:data\_process": lambda pipe, \*args: args,
+
+
+
+            "direct\_distill\:data\_process": lambda pipe, \*args: args,
+
+
+
+            "sft": lambda pipe, inputs\_shared, inputs\_posi, inputs\_nega: FlowMatchSFTLoss(pipe, \*\*inputs\_shared, \*\*inputs\_posi),
+
+
+
+            \# "sft": lambda pipe, inputs\_shared, inputs\_posi, inputs\_nega: FlowMatchSFTPixelL1Loss(pipe, \*\*inputs\_shared, \*\*inputs\_posi),
+
+
+
+            "sft\:train": lambda pipe, inputs\_shared, inputs\_posi, inputs\_nega: FlowMatchSFTLoss(pipe, \*\*inputs\_shared, \*\*inputs\_posi),
+
+
+
+            \# "sft\:train": lambda pipe, inputs\_shared, inputs\_posi, inputs\_nega: FlowMatchSFTPixelL1Loss(pipe, \*\*inputs\_shared, \*\*inputs\_posi),
+
+
+
+            "direct\_distill": lambda pipe, inputs\_shared, inputs\_posi, inputs\_nega: DirectDistillLoss(pipe, \*\*inputs\_shared, \*\*inputs\_posi),
+
+
+
+            "direct\_distill\:train": lambda pipe, inputs\_shared, inputs\_posi, inputs\_nega: DirectDistillLoss(pipe, \*\*inputs\_shared, \*\*inputs\_posi),
+
+
+
+        }
+
+
+
+
+
+
+
+    def get\_pipeline\_inputs(self, data):
+
+
+
+        inputs\_posi = {"prompt": data["prompt"]}
+
+
+
+        inputs\_nega = {"negative\_prompt": ""}
+
+
+
+
+
+
+
+        inputs\_shared = {
+
+
+
+            "input\_image": data["image"],
+
+
+
+            "height": data["image"].size[1],
+
+
+
+            "width": data["image"].size[0],
+
+
+
+            "embedded\_guidance": 1.0,
+
+
+
+            "cfg\_scale": 1,
+
+
+
+            "rand\_device": self.pipe.device,
+
+
+
+            "use\_gradient\_checkpointing": self.use\_gradient\_checkpointing,
+
+
+
+            "use\_gradient\_checkpointing\_offload": self.use\_gradient\_checkpointing\_offload,
+
+
+
+        }
+
+
+
+
+
+
+
+        inputs\_shared = self.parse\_extra\_inputs(data, self.extra\_inputs, inputs\_shared)
+
+
+
+        return inputs\_shared, inputs\_posi, inputs\_nega
+
+
+
+
+
+
+
+    def forward(self, data, inputs=None):
+
+
+
+        if inputs is None:
+
+
+
+            inputs = self.get\_pipeline\_inputs(data)
+
+
+
+
+
+
+
+        inputs = self.transfer\_data\_to\_device(inputs, self.pipe.device, self.pipe.torch\_dtype)
+
+
+
+
+
+
+
+        for unit in self.pipe.units:
+
+
+
+            inputs = self.pipe.unit\_runner(unit, self.pipe, \*inputs)
+
+
+
+
+
+
+
+        loss = self.task\_to\_loss[self.task]\(self.pipe, \*inputs)
+
+
+
+        return loss
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def flux2\_parser():
+
+
+
+    parser = argparse.ArgumentParser(description="FLUX.2 focus fusion training script.")
+
+
+
+    parser = add\_general\_config(parser)
+
+
+
+    parser = add\_image\_size\_config(parser)
+
+
+
+    parser.add\_argument("--tokenizer\_path", type=str, default=None, help="Path to tokenizer.")
+
+
+
+    parser.add\_argument("--initialize\_model\_on\_cpu", default=False, action="store\_true", help="Whether to initialize models on CPU.")
+
+
+
+    parser.add\_argument("--max\_data\_items", type=int, default=None, help="Optional max number of data items.")
+
+
+
+    return parser
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+if \_\_name\_\_ == "\_\_main\_\_":
+
+
+
+    parser = flux2\_parser()
+
+
+
+    args = parser.parse\_args()
+
+
+
+
+
+
+
+    accelerator = accelerate.Accelerator(
+
+
+
+        gradient\_accumulation\_steps=args.gradient\_accumulation\_steps,
+
+
+
+        kwargs\_handlers=[
+
+
+
+            accelerate.DistributedDataParallelKwargs(
+
+
+
+                find\_unused\_parameters=args.find\_unused\_parameters
+
+
+
+            )
+
+
+
+        ],
+
+
+
+    )
+
+
+
+
+
+
+
+    dataset = FocusFusionDataset(
+
+
+
+        base\_path=args.dataset\_base\_path,
+
+
+
+        metadata\_path=args.dataset\_metadata\_path,
+
+
+
+        repeat=args.dataset\_repeat,
+
+
+
+        max\_pixels=args.max\_pixels,
+
+
+
+        height=args.height,
+
+
+
+        width=args.width,
+
+
+
+        div=16,
+
+
+
+        max\_data\_items=args.max\_data\_items,
+
+
+
+    )
+
+
+
+
+
+
+
+    model = Flux2ImageTrainingModule(
+
+
+
+        model\_paths=args.model\_paths,
+
+
+
+        model\_id\_with\_origin\_paths=args.model\_id\_with\_origin\_paths,
+
+
+
+        tokenizer\_path=args.tokenizer\_path,
+
+
+
+        trainable\_models=args.trainable\_models,
+
+
+
+        lora\_base\_model=args.lora\_base\_model,
+
+
+
+        lora\_target\_modules=args.lora\_target\_modules,
+
+
+
+        lora\_rank=args.lora\_rank,
+
+
+
+        lora\_checkpoint=args.lora\_checkpoint,
+
+
+
+        preset\_lora\_path=args.preset\_lora\_path,
+
+
+
+        preset\_lora\_model=args.preset\_lora\_model,
+
+
+
+        use\_gradient\_checkpointing=args.use\_gradient\_checkpointing,
+
+
+
+        use\_gradient\_checkpointing\_offload=args.use\_gradient\_checkpointing\_offload,
+
+
+
+        extra\_inputs=args.extra\_inputs,
+
+
+
+        fp8\_models=args.fp8\_models,
+
+
+
+        offload\_models=args.offload\_models,
+
+
+
+        task=args.task,
+
+
+
+        device="cpu" if args.initialize\_model\_on\_cpu else accelerator.device,
+
+
+
+    )
+
+
+
+
+
+
+
+    model\_logger = ModelLogger(
+
+
+
+        args.output\_path,
+
+
+
+        remove\_prefix\_in\_ckpt=args.remove\_prefix\_in\_ckpt,
+
+
+
+    )
+
+
+
+
+
+
+
+    launcher\_map = {
+
+
+
+        "sft\:data\_process": launch\_data\_process\_task,
+
+
+
+        "direct\_distill\:data\_process": launch\_data\_process\_task,
+
+
+
+        "sft": launch\_training\_task,
+
+
+
+        "sft\:train": launch\_training\_task,
+
+
+
+        "direct\_distill": launch\_training\_task,
+
+
+
+        "direct\_distill\:train": launch\_training\_task,
+
+
+
+    }
+
+
+
+
+
+
+
+    launcher\_map[args.task]\(accelerator, dataset, model, model\_logger, args=args)  #!/usr/bin/env bash 
+
+set -e 
+
+ 
+
+export CUDA_VISIBLE_DEVICES=0,1,2,3 
+
+export TOKENIZERS_PARALLELISM=false 
+
+# export HF_HUB_OFFLINE=1 
+
+export MODELSCOPE_OFFLINE=1 
+
+ 
+
+accelerate launch \ 
+
+  --num_processes 4 \ 
+
+  --num_machines 1 \ 
+
+  --mixed_precision bf16 \ 
+
+  /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/focus/train_flux2.py \ 
+
+  --dataset_base_path "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mff_merged_small/train" \ 
+
+  --dataset_metadata_path "/data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mff_merged_small//train/metadata.json" \ 
+
+  --data_file_keys "image,edit_image" \ 
+
+  --extra_inputs "edit_image" \ 
+
+  --max_pixels 4194304 \ 
+
+  --dataset_repeat 10 \ 
+
+  --model_id_with_origin_paths "black-forest-labs/FLUX.2-klein-4B:text_encoder/*.safetensors,black-forest-labs/FLUX.2-klein-4B:transformer/*.safetensors,black-forest-labs/FLUX.2-klein-4B:vae/diffusion_pytorch_model.safetensors" \ 
+
+  --tokenizer_path "black-forest-labs/FLUX.2-klein-4B:tokenizer/" \ 
+
+  --learning_rate 1e-4 \ 
+
+  --num_epochs 5 \ 
+
+  --remove_prefix_in_ckpt "pipe.dit." \ 
+
+  --output_path "./models/train/FLUX.2-klein-4-4B_focus_fusion_lora" \ 
+
+  --lora_base_model "dit" \ 
+
+  --lora_target_modules "to_q,to_k,to_v,to_out.0,add_q_proj,add_k_proj,add_v_proj,to_add_out,linear_in,linear_out,to_qkv_mlp_proj,single_transformer_blocks.0.attn.to_out,single_transformer_blocks.1.attn.to_out,single_transformer_blocks.2.attn.to_out,single_transformer_blocks.3.attn.to_out,single_transformer_blocks.4.attn.to_out,single_transformer_blocks.5.attn.to_out,single_transformer_blocks.6.attn.to_out,single_transformer_blocks.7.attn.to_out,single_transformer_blocks.8.attn.to_out,single_transformer_blocks.9.attn.to_out,single_transformer_blocks.10.attn.to_out,single_transformer_blocks.11.attn.to_out,single_transformer_blocks.12.attn.to_out,single_transformer_blocks.13.attn.to_out,single_transformer_blocks.14.attn.to_out,single_transformer_blocks.15.attn.to_out,single_transformer_blocks.16.attn.to_out,single_transformer_blocks.17.attn.to_out,single_transformer_blocks.18.attn.to_out,single_transformer_blocks.19.attn.to_out" \ 
+
+  --lora_rank 32 \ 
+
+  --use_gradient_checkpointing \ 
+
+  --dataset_num_workers 8 \ 
+
+  --find_unused_parameters保存代码#!/usr/bin/env python3
+
+
+
+# -*- coding: utf-8 -*-
+
+
+
+
+
+
+
+import os
+
+
+
+import json
+
+
+
+import math
+
+
+
+import argparse
+
+
+
+from pathlib import Path
+
+
+
+from typing import List, Dict, Optional
+
+
+
+
+
+
+
+import torch
+
+
+
+from PIL import Image
+
+
+
+from tqdm import tqdm
+
+
+
+
+
+
+
+from diffsynth.pipelines.flux2_image import Flux2ImagePipeline, ModelConfig
+
+
+
+
+
+
+
+
+
+
+
+def ensure_dir(path: Path):
+
+
+
+    path.mkdir(parents=True, exist_ok=True)
+
+
+
+
+
+
+
+
+
+
+
+def is_image_file(p: Path) -> bool:
+
+
+
+    return p.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tif", ".tiff"]
+
+
+
+
+
+
+
+
+
+
+
+def aligned_hw_from_image(
+
+
+
+    image: Image.Image,
+
+
+
+    max_pixels: int = 2097152,
+
+
+
+    align: int = 16,
+
+
+
+) -> tuple[int, int]:
+
+
+
+    w, h = image.size
+
+
+
+
+
+
+
+    if w * h > max_pixels:
+
+
+
+        scale = math.sqrt(max_pixels / float(w * h))
+
+
+
+        w = max(1, int(w * scale))
+
+
+
+        h = max(1, int(h * scale))
+
+
+
+
+
+
+
+    w = max(align, (w // align) * align)
+
+
+
+    h = max(align, (h // align) * align)
+
+
+
+
+
+
+
+    return h, w
+
+
+
+
+
+
+
+
+
+
+
+def collect_pairs_from_suffixes(input_dir: Path) -> List[Dict]:
+
+
+
+    a_files = sorted([p for p in input_dir.rglob("*") if p.is_file() and is_image_file(p) and p.stem.endswith("_a")])
+
+
+
+    pairs = []
+
+
+
+
+
+
+
+    for a_path in a_files:
+
+
+
+        base = a_path.stem[:-2]
+
+
+
+        b_path = a_path.with_name(base + "_b" + a_path.suffix)
+
+
+
+
+
+
+
+        if not b_path.exists():
+
+
+
+            candidates = list(a_path.parent.glob(base + "_b.*"))
+
+
+
+            candidates = [x for x in candidates if x.is_file() and is_image_file(x)]
+
+
+
+            if len(candidates) == 0:
+
+
+
+                print(f"[WARN] 缺少配对 b 图，跳过: {a_path}")
+
+
+
+                continue
+
+
+
+            b_path = candidates[0]
+
+
+
+
+
+
+
+        pairs.append({
+
+
+
+            "id": base,
+
+
+
+            "a": str(a_path),
+
+
+
+            "b": str(b_path),
+
+
+
+        })
+
+
+
+
+
+
+
+    return pairs
+
+
+
+
+
+
+
+
+
+
+
+def collect_pairs_from_metadata(base_path: Path, metadata_path: Path) -> List[Dict]:
+
+
+
+    with open(metadata_path, "r", encoding="utf-8") as f:
+
+
+
+        metadata = json.load(f)
+
+
+
+
+
+
+
+    pairs = []
+
+
+
+    for i, item in enumerate(metadata):
+
+
+
+        edit_images = item.get("edit_image", None)
+
+
+
+
+
+
+
+        # 兼容 [a,b] 或 [a,b,focus_a]
+
+
+
+        if not isinstance(edit_images, list) or len(edit_images) < 2:
+
+
+
+            print(f"[WARN] metadata 第 {i} 项 edit_image 少于2张，跳过")
+
+
+
+            continue
+
+
+
+
+
+
+
+        a = base_path / edit_images[0]
+
+
+
+        b = base_path / edit_images[1]
+
+
+
+
+
+
+
+        focus_a = None
+
+
+
+        if len(edit_images) >= 3:
+
+
+
+            focus_a = base_path / edit_images[2]
+
+
+
+
+
+
+
+        sample_id = (
+
+
+
+            Path(edit_images[0]).stem[:-2]
+
+
+
+            if Path(edit_images[0]).stem.endswith("_a")
+
+
+
+            else f"sample_{i:06d}"
+
+
+
+        )
+
+
+
+
+
+
+
+        pairs.append({
+
+
+
+            "id": sample_id,
+
+
+
+            "a": str(a),
+
+
+
+            "b": str(b),
+
+
+
+            "focus_a": str(focus_a) if focus_a is not None else None,
+
+
+
+            "prompt": item.get("prompt", None),
+
+
+
+        })
+
+
+
+
+
+
+
+    return pairs
+
+
+
+# def collect_pairs_from_metadata(base_path: Path, metadata_path: Path) -> List[Dict]:
+
+
+
+#     with open(metadata_path, "r", encoding="utf-8") as f:
+
+
+
+#         metadata = json.load(f)
+
+
+
+
+
+
+
+#     pairs = []
+
+
+
+#     for i, item in enumerate(metadata):
+
+
+
+#         edit_images = item.get("edit_image", None)
+
+
+
+#         if not isinstance(edit_images, list) or len(edit_images) != 2:
+
+
+
+#             print(f"[WARN] metadata 第 {i} 项 edit_image 不是长度为2的列表，跳过")
+
+
+
+#             continue
+
+
+
+
+
+
+
+#         a = base_path / edit_images[0]
+
+
+
+#         b = base_path / edit_images[1]
+
+
+
+#         sample_id = Path(edit_images[0]).stem[:-2] if Path(edit_images[0]).stem.endswith("_a") else f"sample_{i:06d}"
+
+
+
+
+
+
+
+#         pairs.append({
+
+
+
+#             "id": sample_id,
+
+
+
+#             "a": str(a),
+
+
+
+#             "b": str(b),
+
+
+
+#             "prompt": item.get("prompt", None),
+
+
+
+#         })
+
+
+
+
+
+
+
+#     return pairs
+
+
+
+
+
+
+
+
+
+
+
+def build_pipeline(device: str, torch_dtype: torch.dtype, lora_path: Optional[str] = None):
+
+
+
+    pipe = Flux2ImagePipeline.from_pretrained(
+
+
+
+        torch_dtype=torch_dtype,
+
+
+
+        device=device,
+
+
+
+        model_configs=[
+
+
+
+            ModelConfig(model_id="black-forest-labs/FLUX.2-klein-4B", origin_file_pattern="text_encoder/*.safetensors"),
+
+
+
+            ModelConfig(model_id="black-forest-labs/FLUX.2-klein-4B", origin_file_pattern="transformer/*.safetensors"),
+
+
+
+            ModelConfig(model_id="black-forest-labs/FLUX.2-klein-4B", origin_file_pattern="vae/diffusion_pytorch_model.safetensors"),
+
+
+
+        ],
+
+
+
+        tokenizer_config=ModelConfig(model_id="black-forest-labs/FLUX.2-klein-4B", origin_file_pattern="tokenizer/"),
+
+
+
+    )
+
+
+
+
+
+
+
+    if lora_path is not None and len(lora_path) > 0:
+
+
+
+        print(f"[INFO] Loading LoRA: {lora_path}")
+
+
+
+        pipe.load_lora(pipe.dit, lora_path)
+
+
+
+
+
+
+
+    return pipe
+
+
+
+
+
+
+
+
+
+
+
+@torch.inference_mode()
+
+
+
+def run_one(
+
+
+
+    pipe,
+
+
+
+    a_path: str,
+
+
+
+    b_path: str,
+
+
+
+    focus_a_path: Optional[str],
+
+
+
+    prompt: str,
+
+
+
+    negative_prompt: str,
+
+
+
+    num_inference_steps: int,
+
+
+
+    seed: int,
+
+
+
+    max_pixels: int,
+
+
+
+    cfg_scale: float,
+
+
+
+    embedded_guidance: float,
+
+
+
+    restore_to_original_size: bool,
+
+
+
+) -> Image.Image:
+
+
+
+    img_a = Image.open(a_path).convert("RGB")
+
+
+
+    img_b = Image.open(b_path).convert("RGB")
+
+
+
+
+
+
+
+    orig_w, orig_h = img_a.size
+
+
+
+    height, width = aligned_hw_from_image(img_a, max_pixels=max_pixels, align=16)
+
+
+
+
+
+
+
+    img_a_resized = img_a.resize((width, height), Image.BILINEAR)
+
+
+
+    img_b_resized = img_b.resize((width, height), Image.BILINEAR)
+
+
+
+
+
+
+
+    edit_images = [img_a_resized, img_b_resized]
+
+
+
+
+
+
+
+    if focus_a_path is not None:
+
+
+
+        img_focus = Image.open(focus_a_path).convert("RGB")
+
+
+
+        img_focus = img_focus.resize((width, height), Image.BILINEAR)
+
+
+
+        edit_images.append(img_focus)
+
+
+
+
+
+
+
+    image = pipe(
+
+
+
+        prompt=prompt,
+
+
+
+        negative_prompt=negative_prompt,
+
+
+
+        input_image=img_a_resized,
+
+
+
+        edit_image=edit_images,
+
+
+
+        seed=seed,
+
+
+
+        num_inference_steps=num_inference_steps,
+
+
+
+        cfg_scale=cfg_scale,
+
+
+
+        embedded_guidance=embedded_guidance,
+
+
+
+        height=height,
+
+
+
+        width=width,
+
+
+
+    )
+
+
+
+
+
+
+
+    if restore_to_original_size and image.size != (orig_w, orig_h):
+
+
+
+        image = image.resize((orig_w, orig_h), Image.BILINEAR)
+
+
+
+
+
+
+
+    return image
+
+
+
+# def run_one(
+
+
+
+#     pipe,
+
+
+
+#     a_path: str,
+
+
+
+#     b_path: str,
+
+
+
+#     prompt: str,
+
+
+
+#     negative_prompt: str,
+
+
+
+#     num_inference_steps: int,
+
+
+
+#     seed: int,
+
+
+
+#     max_pixels: int,
+
+
+
+#     cfg_scale: float,
+
+
+
+#     embedded_guidance: float,
+
+
+
+#     restore_to_original_size: bool,
+
+
+
+# ) -> Image.Image:
+
+
+
+#     img_a = Image.open(a_path).convert("RGB")
+
+
+
+#     img_b = Image.open(b_path).convert("RGB")
+
+
+
+
+
+
+
+#     orig_w, orig_h = img_a.size
+
+
+
+#     height, width = aligned_hw_from_image(img_a, max_pixels=max_pixels, align=16)
+
+
+
+
+
+
+
+#     if img_b.size != img_a.size:
+
+
+
+#         print(f"[WARN] 输入尺寸不一致: a={img_a.size}, b={img_b.size}")
+
+
+
+
+
+
+
+#     # 关键：先手动 resize，再喂给 pipe
+
+
+
+#     img_a_resized = img_a.resize((width, height), Image.BILINEAR)
+
+
+
+#     img_b_resized = img_b.resize((width, height), Image.BILINEAR)
+
+
+
+
+
+
+
+#     image = pipe(
+
+
+
+#         prompt=prompt,
+
+
+
+#         negative_prompt=negative_prompt,
+
+
+
+#         input_image=img_a_resized,
+
+
+
+#         edit_image=[img_a_resized, img_b_resized],
+
+
+
+#         seed=seed,
+
+
+
+#         num_inference_steps=num_inference_steps,
+
+
+
+#         cfg_scale=cfg_scale,
+
+
+
+#         embedded_guidance=embedded_guidance,
+
+
+
+#         height=height,
+
+
+
+#         width=width,
+
+
+
+#     )
+
+
+
+
+
+
+
+#     if restore_to_original_size and image.size != (orig_w, orig_h):
+
+
+
+#         image = image.resize((orig_w, orig_h), Image.BILINEAR)
+
+
+
+
+
+
+
+#     return image
+
+
+
+
+
+
+
+
+
+
+
+def main():
+
+
+
+    parser = argparse.ArgumentParser(description="Batch multi-focus fusion inference for FLUX.2-klein-base-4B")
+
+
+
+    parser.add_argument("--input_dir", type=str, default=None, help="输入目录，扫描 *_a / *_b")
+
+
+
+    parser.add_argument("--metadata_path", type=str, default=None, help="metadata.json 路径；给了它就优先按 metadata 读取")
+
+
+
+    parser.add_argument("--dataset_base_path", type=str, default=None, help="配合 metadata 使用的数据根目录")
+
+
+
+    parser.add_argument("--output_dir", type=str, required=True, help="输出目录")
+
+
+
+    parser.add_argument("--lora_path", type=str, default="", help="LoRA safetensors 路径")
+
+
+
+    parser.add_argument("--prompt", type=str, default="Multi-focus image fusion. Preserve sharp regions.")
+
+
+
+    parser.add_argument("--negative_prompt", type=str, default="", help="负向提示词")
+
+
+
+    parser.add_argument("--num_inference_steps", type=int, default=28)
+
+
+
+    parser.add_argument("--seed", type=int, default=0)
+
+
+
+    parser.add_argument("--max_pixels", type=int, default=4194304)
+
+
+
+    parser.add_argument("--cfg_scale", type=float, default=1.0)
+
+
+
+    parser.add_argument("--embedded_guidance", type=float, default=1.0)
+
+
+
+    parser.add_argument("--device", type=str, default="cuda")
+
+
+
+    parser.add_argument("--dtype", type=str, default="bf16", choices=["bf16", "fp16", "fp32"])
+
+
+
+    parser.add_argument("--restore_to_original_size", action="store_true")
+
+
+
+    args = parser.parse_args()
+
+
+
+
+
+
+
+    if args.metadata_path is None and args.input_dir is None:
+
+
+
+        raise ValueError("至少给一个 --input_dir 或 --metadata_path")
+
+
+
+
+
+
+
+    ensure_dir(Path(args.output_dir))
+
+
+
+
+
+
+
+    if args.dtype == "bf16":
+
+
+
+        torch_dtype = torch.bfloat16
+
+
+
+    elif args.dtype == "fp16":
+
+
+
+        torch_dtype = torch.float16
+
+
+
+    else:
+
+
+
+        torch_dtype = torch.float32
+
+
+
+
+
+
+
+    pipe = build_pipeline(
+
+
+
+        device=args.device,
+
+
+
+        torch_dtype=torch_dtype,
+
+
+
+        lora_path=args.lora_path if args.lora_path else None,
+
+
+
+    )
+
+
+
+
+
+
+
+    if args.metadata_path is not None:
+
+
+
+        if args.dataset_base_path is None:
+
+
+
+            raise ValueError("使用 metadata 时需要同时提供 --dataset_base_path")
+
+
+
+        pairs = collect_pairs_from_metadata(Path(args.dataset_base_path), Path(args.metadata_path))
+
+
+
+    else:
+
+
+
+        pairs = collect_pairs_from_suffixes(Path(args.input_dir))
+
+
+
+
+
+
+
+    print(f"[INFO] Found {len(pairs)} pairs")
+
+
+
+
+
+
+
+    manifest = []
+
+
+
+
+
+
+
+    for idx, item in enumerate(tqdm(pairs, desc="Infer")):
+
+
+
+        sample_id = item["id"]
+
+
+
+        a_path = item["a"]
+
+
+
+        b_path = item["b"]
+
+
+
+        #focus_a_path=item[""]
+
+
+
+        prompt = item.get("prompt", None) or args.prompt
+
+
+
+        out_img = run_one(
+
+
+
+            pipe=pipe,
+
+
+
+            a_path=a_path,
+
+
+
+            b_path=b_path,
+
+
+
+            focus_a_path=item.get("focus_a", None),
+
+
+
+            prompt=prompt,
+
+
+
+            negative_prompt=args.negative_prompt,
+
+
+
+            num_inference_steps=args.num_inference_steps,
+
+
+
+            seed=args.seed + idx,
+
+
+
+            max_pixels=args.max_pixels,
+
+
+
+            cfg_scale=args.cfg_scale,
+
+
+
+            embedded_guidance=args.embedded_guidance,
+
+
+
+            restore_to_original_size=args.restore_to_original_size,
+
+
+
+        )
+
+
+
+        # out_img = run_one(
+
+
+
+        #     pipe=pipe,
+
+
+
+        #     a_path=a_path,
+
+
+
+        #     b_path=b_path,
+
+
+
+        #     prompt=prompt,
+
+
+
+        #     negative_prompt=args.negative_prompt,
+
+
+
+        #     num_inference_steps=args.num_inference_steps,
+
+
+
+        #     seed=args.seed + idx,
+
+
+
+        #     max_pixels=args.max_pixels,
+
+
+
+        #     cfg_scale=args.cfg_scale,
+
+
+
+        #     embedded_guidance=args.embedded_guidance,
+
+
+
+        #     restore_to_original_size=args.restore_to_original_size,
+
+
+
+        # )
+
+
+
+
+
+
+
+        out_path = Path(args.output_dir) / f"{sample_id}_pred.png"
+
+
+
+        out_img.save(out_path)
+
+
+
+
+
+
+
+        manifest.append({
+
+
+
+            "id": sample_id,
+
+
+
+            "a": a_path,
+
+
+
+            "b": b_path,
+
+
+
+            "focus_a": item.get("focus_a", None),
+
+
+
+            "output": str(out_path),
+
+
+
+            "prompt": prompt,
+
+
+
+            "negative_prompt": args.negative_prompt,
+
+
+
+        })
+
+
+
+
+
+
+
+    with open(Path(args.output_dir) / "manifest.json", "w", encoding="utf-8") as f:
+
+
+
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+
+
+
+
+
+
+    print(f"[INFO] Done. Results saved to: {args.output_dir}")
+
+
+
+
+
+
+
+
+
+
+
+if __name__ == "__main__":
+
+
+
+    main()
+
+
+
+
+
+
+
+"""
+
+
+
+python infer_flux2_focus_fusion_batch_4B_4.py \
+
+
+
+  --input_dir /data/vjuicefs_ai_camera_3drg_ql/public_data/11193880/dataset/mff_merged_small_test30p/test/images \
+
+
+
+  --output_dir ./outputs/FLUX.2-klein-4-4B_focus_fusion_lora/output_eval \
+
+
+
+  --lora_path ./models/train/FLUX.2-klein-4-4B_focus_fusion_lora/epoch-4.safetensors \
+
+
+
+  --num_inference_steps 4 \
+
+
+
+  --max_pixels 4194304 \
+
+
+
+  --restore_to_original_size
+
+
+
+"""保存代码和sh
